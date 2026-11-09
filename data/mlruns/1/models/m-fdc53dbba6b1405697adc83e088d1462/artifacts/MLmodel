@@ -1,0 +1,308 @@
+artifact_path: file:C:/Users/Philippe MAGNE/Documents/3 - DEV/P6_initiez_vous_au_MLOps_(partie1_sur_2)/notebooks/mlruns/1/models/m-fdc53dbba6b1405697adc83e088d1462/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.13.3
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+is_signature_from_type_hint: false
+mlflow_version: 3.16.0
+model_id: m-fdc53dbba6b1405697adc83e088d1462
+model_size_bytes: 1136665
+model_uuid: m-fdc53dbba6b1405697adc83e088d1462
+prompts: null
+run_id: 76ab32f50d79486696c7bc49f41878a9
+saved_input_example_info:
+  artifact_path: input_example.json
+  pandas_orient: split
+  serving_input_path: serving_input_example.json
+  type: dataframe
+signature:
+  inputs: '[{"type": "long", "name": "NAME_CONTRACT_TYPE", "required": true}, {"type":
+    "long", "name": "FLAG_OWN_CAR", "required": true}, {"type": "long", "name": "FLAG_OWN_REALTY",
+    "required": true}, {"type": "long", "name": "CNT_CHILDREN", "required": true},
+    {"type": "double", "name": "AMT_INCOME_TOTAL", "required": true}, {"type": "double",
+    "name": "AMT_CREDIT", "required": true}, {"type": "double", "name": "AMT_ANNUITY",
+    "required": true}, {"type": "double", "name": "AMT_GOODS_PRICE", "required": true},
+    {"type": "double", "name": "REGION_POPULATION_RELATIVE", "required": true}, {"type":
+    "long", "name": "DAYS_BIRTH", "required": true}, {"type": "double", "name": "DAYS_EMPLOYED",
+    "required": true}, {"type": "double", "name": "DAYS_REGISTRATION", "required":
+    true}, {"type": "long", "name": "DAYS_ID_PUBLISH", "required": true}, {"type":
+    "double", "name": "OWN_CAR_AGE", "required": false}, {"type": "long", "name":
+    "FLAG_MOBIL", "required": true}, {"type": "long", "name": "FLAG_EMP_PHONE", "required":
+    true}, {"type": "long", "name": "FLAG_WORK_PHONE", "required": true}, {"type":
+    "long", "name": "FLAG_CONT_MOBILE", "required": true}, {"type": "long", "name":
+    "FLAG_PHONE", "required": true}, {"type": "long", "name": "FLAG_EMAIL", "required":
+    true}, {"type": "double", "name": "CNT_FAM_MEMBERS", "required": true}, {"type":
+    "long", "name": "REGION_RATING_CLIENT", "required": true}, {"type": "long", "name":
+    "REGION_RATING_CLIENT_W_CITY", "required": true}, {"type": "long", "name": "HOUR_APPR_PROCESS_START",
+    "required": true}, {"type": "long", "name": "REG_REGION_NOT_LIVE_REGION", "required":
+    true}, {"type": "long", "name": "REG_REGION_NOT_WORK_REGION", "required": true},
+    {"type": "long", "name": "LIVE_REGION_NOT_WORK_REGION", "required": true}, {"type":
+    "long", "name": "REG_CITY_NOT_LIVE_CITY", "required": true}, {"type": "long",
+    "name": "REG_CITY_NOT_WORK_CITY", "required": true}, {"type": "long", "name":
+    "LIVE_CITY_NOT_WORK_CITY", "required": true}, {"type": "double", "name": "EXT_SOURCE_1",
+    "required": false}, {"type": "double", "name": "EXT_SOURCE_2", "required": true},
+    {"type": "double", "name": "EXT_SOURCE_3", "required": false}, {"type": "double",
+    "name": "APARTMENTS_AVG", "required": false}, {"type": "double", "name": "BASEMENTAREA_AVG",
+    "required": false}, {"type": "double", "name": "YEARS_BEGINEXPLUATATION_AVG",
+    "required": false}, {"type": "double", "name": "YEARS_BUILD_AVG", "required":
+    false}, {"type": "double", "name": "COMMONAREA_AVG", "required": false}, {"type":
+    "double", "name": "ELEVATORS_AVG", "required": false}, {"type": "double", "name":
+    "ENTRANCES_AVG", "required": false}, {"type": "double", "name": "FLOORSMAX_AVG",
+    "required": false}, {"type": "double", "name": "FLOORSMIN_AVG", "required": false},
+    {"type": "double", "name": "LANDAREA_AVG", "required": false}, {"type": "double",
+    "name": "LIVINGAPARTMENTS_AVG", "required": false}, {"type": "double", "name":
+    "LIVINGAREA_AVG", "required": false}, {"type": "double", "name": "NONLIVINGAPARTMENTS_AVG",
+    "required": false}, {"type": "double", "name": "NONLIVINGAREA_AVG", "required":
+    false}, {"type": "double", "name": "APARTMENTS_MODE", "required": false}, {"type":
+    "double", "name": "BASEMENTAREA_MODE", "required": false}, {"type": "double",
+    "name": "YEARS_BEGINEXPLUATATION_MODE", "required": false}, {"type": "double",
+    "name": "YEARS_BUILD_MODE", "required": false}, {"type": "double", "name": "COMMONAREA_MODE",
+    "required": false}, {"type": "double", "name": "ELEVATORS_MODE", "required": false},
+    {"type": "double", "name": "ENTRANCES_MODE", "required": false}, {"type": "double",
+    "name": "FLOORSMAX_MODE", "required": false}, {"type": "double", "name": "FLOORSMIN_MODE",
+    "required": false}, {"type": "double", "name": "LANDAREA_MODE", "required": false},
+    {"type": "double", "name": "LIVINGAPARTMENTS_MODE", "required": false}, {"type":
+    "double", "name": "LIVINGAREA_MODE", "required": false}, {"type": "double", "name":
+    "NONLIVINGAPARTMENTS_MODE", "required": false}, {"type": "double", "name": "NONLIVINGAREA_MODE",
+    "required": false}, {"type": "double", "name": "APARTMENTS_MEDI", "required":
+    false}, {"type": "double", "name": "BASEMENTAREA_MEDI", "required": false}, {"type":
+    "double", "name": "YEARS_BEGINEXPLUATATION_MEDI", "required": false}, {"type":
+    "double", "name": "YEARS_BUILD_MEDI", "required": false}, {"type": "double", "name":
+    "COMMONAREA_MEDI", "required": false}, {"type": "double", "name": "ELEVATORS_MEDI",
+    "required": false}, {"type": "double", "name": "ENTRANCES_MEDI", "required": false},
+    {"type": "double", "name": "FLOORSMAX_MEDI", "required": false}, {"type": "double",
+    "name": "FLOORSMIN_MEDI", "required": false}, {"type": "double", "name": "LANDAREA_MEDI",
+    "required": false}, {"type": "double", "name": "LIVINGAPARTMENTS_MEDI", "required":
+    false}, {"type": "double", "name": "LIVINGAREA_MEDI", "required": false}, {"type":
+    "double", "name": "NONLIVINGAPARTMENTS_MEDI", "required": false}, {"type": "double",
+    "name": "NONLIVINGAREA_MEDI", "required": false}, {"type": "double", "name": "TOTALAREA_MODE",
+    "required": false}, {"type": "double", "name": "EMERGENCYSTATE_MODE", "required":
+    false}, {"type": "double", "name": "OBS_30_CNT_SOCIAL_CIRCLE", "required": true},
+    {"type": "double", "name": "DEF_30_CNT_SOCIAL_CIRCLE", "required": true}, {"type":
+    "double", "name": "OBS_60_CNT_SOCIAL_CIRCLE", "required": true}, {"type": "double",
+    "name": "DEF_60_CNT_SOCIAL_CIRCLE", "required": true}, {"type": "double", "name":
+    "DAYS_LAST_PHONE_CHANGE", "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_2",
+    "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_3", "required": true},
+    {"type": "long", "name": "FLAG_DOCUMENT_4", "required": true}, {"type": "long",
+    "name": "FLAG_DOCUMENT_5", "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_6",
+    "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_7", "required": true},
+    {"type": "long", "name": "FLAG_DOCUMENT_8", "required": true}, {"type": "long",
+    "name": "FLAG_DOCUMENT_9", "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_10",
+    "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_11", "required": true},
+    {"type": "long", "name": "FLAG_DOCUMENT_12", "required": true}, {"type": "long",
+    "name": "FLAG_DOCUMENT_13", "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_14",
+    "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_15", "required": true},
+    {"type": "long", "name": "FLAG_DOCUMENT_16", "required": true}, {"type": "long",
+    "name": "FLAG_DOCUMENT_17", "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_18",
+    "required": true}, {"type": "long", "name": "FLAG_DOCUMENT_19", "required": true},
+    {"type": "long", "name": "FLAG_DOCUMENT_20", "required": true}, {"type": "long",
+    "name": "FLAG_DOCUMENT_21", "required": true}, {"type": "double", "name": "AMT_REQ_CREDIT_BUREAU_HOUR",
+    "required": false}, {"type": "double", "name": "AMT_REQ_CREDIT_BUREAU_DAY", "required":
+    false}, {"type": "double", "name": "AMT_REQ_CREDIT_BUREAU_WEEK", "required": false},
+    {"type": "double", "name": "AMT_REQ_CREDIT_BUREAU_MON", "required": false}, {"type":
+    "double", "name": "AMT_REQ_CREDIT_BUREAU_QRT", "required": false}, {"type": "double",
+    "name": "AMT_REQ_CREDIT_BUREAU_YEAR", "required": false}, {"type": "boolean",
+    "name": "OWN_CAR_AGE_ANOMALOUS", "required": true}, {"type": "boolean", "name":
+    "OBS_30_CNT_SOCIAL_CIRCLE_ANOMALOUS", "required": true}, {"type": "boolean", "name":
+    "OBS_60_CNT_SOCIAL_CIRCLE_ANOMALOUS", "required": true}, {"type": "boolean", "name":
+    "DAYS_EMPLOYED_ANOMALOUS", "required": true}, {"type": "long", "name": "CODE_GENDER__F",
+    "required": true}, {"type": "long", "name": "CODE_GENDER__M", "required": true},
+    {"type": "long", "name": "CODE_GENDER__XNA", "required": true}, {"type": "long",
+    "name": "NAME_TYPE_SUITE__Children", "required": true}, {"type": "long", "name":
+    "NAME_TYPE_SUITE__Family", "required": true}, {"type": "long", "name": "NAME_TYPE_SUITE__Group
+    of people", "required": true}, {"type": "long", "name": "NAME_TYPE_SUITE__Other_A",
+    "required": true}, {"type": "long", "name": "NAME_TYPE_SUITE__Other_B", "required":
+    true}, {"type": "long", "name": "NAME_TYPE_SUITE__Spouse, partner", "required":
+    true}, {"type": "long", "name": "NAME_TYPE_SUITE__Unaccompanied", "required":
+    true}, {"type": "long", "name": "NAME_TYPE_SUITE__nan", "required": true}, {"type":
+    "long", "name": "NAME_INCOME_TYPE__Businessman", "required": true}, {"type": "long",
+    "name": "NAME_INCOME_TYPE__Commercial associate", "required": true}, {"type":
+    "long", "name": "NAME_INCOME_TYPE__Maternity leave", "required": true}, {"type":
+    "long", "name": "NAME_INCOME_TYPE__Pensioner", "required": true}, {"type": "long",
+    "name": "NAME_INCOME_TYPE__State servant", "required": true}, {"type": "long",
+    "name": "NAME_INCOME_TYPE__Student", "required": true}, {"type": "long", "name":
+    "NAME_INCOME_TYPE__Unemployed", "required": true}, {"type": "long", "name": "NAME_INCOME_TYPE__Working",
+    "required": true}, {"type": "long", "name": "NAME_EDUCATION_TYPE__Academic degree",
+    "required": true}, {"type": "long", "name": "NAME_EDUCATION_TYPE__Higher education",
+    "required": true}, {"type": "long", "name": "NAME_EDUCATION_TYPE__Incomplete higher",
+    "required": true}, {"type": "long", "name": "NAME_EDUCATION_TYPE__Lower secondary",
+    "required": true}, {"type": "long", "name": "NAME_EDUCATION_TYPE__Secondary /
+    secondary special", "required": true}, {"type": "long", "name": "NAME_FAMILY_STATUS__Civil
+    marriage", "required": true}, {"type": "long", "name": "NAME_FAMILY_STATUS__Married",
+    "required": true}, {"type": "long", "name": "NAME_FAMILY_STATUS__Separated", "required":
+    true}, {"type": "long", "name": "NAME_FAMILY_STATUS__Single / not married", "required":
+    true}, {"type": "long", "name": "NAME_FAMILY_STATUS__Unknown", "required": true},
+    {"type": "long", "name": "NAME_FAMILY_STATUS__Widow", "required": true}, {"type":
+    "long", "name": "NAME_HOUSING_TYPE__Co-op apartment", "required": true}, {"type":
+    "long", "name": "NAME_HOUSING_TYPE__House / apartment", "required": true}, {"type":
+    "long", "name": "NAME_HOUSING_TYPE__Municipal apartment", "required": true}, {"type":
+    "long", "name": "NAME_HOUSING_TYPE__Office apartment", "required": true}, {"type":
+    "long", "name": "NAME_HOUSING_TYPE__Rented apartment", "required": true}, {"type":
+    "long", "name": "NAME_HOUSING_TYPE__With parents", "required": true}, {"type":
+    "long", "name": "OCCUPATION_TYPE__Accountants", "required": true}, {"type": "long",
+    "name": "OCCUPATION_TYPE__Cleaning staff", "required": true}, {"type": "long",
+    "name": "OCCUPATION_TYPE__Cooking staff", "required": true}, {"type": "long",
+    "name": "OCCUPATION_TYPE__Core staff", "required": true}, {"type": "long", "name":
+    "OCCUPATION_TYPE__Drivers", "required": true}, {"type": "long", "name": "OCCUPATION_TYPE__HR
+    staff", "required": true}, {"type": "long", "name": "OCCUPATION_TYPE__High skill
+    tech staff", "required": true}, {"type": "long", "name": "OCCUPATION_TYPE__IT
+    staff", "required": true}, {"type": "long", "name": "OCCUPATION_TYPE__Laborers",
+    "required": true}, {"type": "long", "name": "OCCUPATION_TYPE__Low-skill Laborers",
+    "required": true}, {"type": "long", "name": "OCCUPATION_TYPE__Managers", "required":
+    true}, {"type": "long", "name": "OCCUPATION_TYPE__Medicine staff", "required":
+    true}, {"type": "long", "name": "OCCUPATION_TYPE__Private service staff", "required":
+    true}, {"type": "long", "name": "OCCUPATION_TYPE__Realty agents", "required":
+    true}, {"type": "long", "name": "OCCUPATION_TYPE__Sales staff", "required": true},
+    {"type": "long", "name": "OCCUPATION_TYPE__Secretaries", "required": true}, {"type":
+    "long", "name": "OCCUPATION_TYPE__Security staff", "required": true}, {"type":
+    "long", "name": "OCCUPATION_TYPE__Waiters/barmen staff", "required": true}, {"type":
+    "long", "name": "OCCUPATION_TYPE__nan", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__FRIDAY", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__MONDAY", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__SATURDAY", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__SUNDAY", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__THURSDAY", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__TUESDAY", "required": true}, {"type": "long", "name":
+    "WEEKDAY_APPR_PROCESS_START__WEDNESDAY", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Advertising", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Agriculture", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Bank", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Business
+    Entity Type 1", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Business
+    Entity Type 2", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Business
+    Entity Type 3", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Cleaning",
+    "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Construction",
+    "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Culture", "required":
+    true}, {"type": "long", "name": "ORGANIZATION_TYPE__Electricity", "required":
+    true}, {"type": "long", "name": "ORGANIZATION_TYPE__Emergency", "required": true},
+    {"type": "long", "name": "ORGANIZATION_TYPE__Government", "required": true}, {"type":
+    "long", "name": "ORGANIZATION_TYPE__Hotel", "required": true}, {"type": "long",
+    "name": "ORGANIZATION_TYPE__Housing", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 1", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 10", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 11", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 12", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 13", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 2", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 3", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 4", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 5", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 6", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 7", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 8", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Industry: type 9", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Insurance", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Kindergarten",
+    "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Legal Services",
+    "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Medicine", "required":
+    true}, {"type": "long", "name": "ORGANIZATION_TYPE__Military", "required": true},
+    {"type": "long", "name": "ORGANIZATION_TYPE__Mobile", "required": true}, {"type":
+    "long", "name": "ORGANIZATION_TYPE__Other", "required": true}, {"type": "long",
+    "name": "ORGANIZATION_TYPE__Police", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Postal", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Realtor",
+    "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__Religion", "required":
+    true}, {"type": "long", "name": "ORGANIZATION_TYPE__Restaurant", "required": true},
+    {"type": "long", "name": "ORGANIZATION_TYPE__School", "required": true}, {"type":
+    "long", "name": "ORGANIZATION_TYPE__Security", "required": true}, {"type": "long",
+    "name": "ORGANIZATION_TYPE__Security Ministries", "required": true}, {"type":
+    "long", "name": "ORGANIZATION_TYPE__Self-employed", "required": true}, {"type":
+    "long", "name": "ORGANIZATION_TYPE__Services", "required": true}, {"type": "long",
+    "name": "ORGANIZATION_TYPE__Telecom", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 1", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 2", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 3", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 4", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 5", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 6", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Trade: type 7", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Transport: type 1", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Transport: type 2", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Transport: type 3", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__Transport: type 4", "required": true}, {"type": "long", "name":
+    "ORGANIZATION_TYPE__University", "required": true}, {"type": "long", "name": "ORGANIZATION_TYPE__XNA",
+    "required": true}, {"type": "long", "name": "FONDKAPREMONT_MODE__not specified",
+    "required": true}, {"type": "long", "name": "FONDKAPREMONT_MODE__org spec account",
+    "required": true}, {"type": "long", "name": "FONDKAPREMONT_MODE__reg oper account",
+    "required": true}, {"type": "long", "name": "FONDKAPREMONT_MODE__reg oper spec
+    account", "required": true}, {"type": "long", "name": "FONDKAPREMONT_MODE__nan",
+    "required": true}, {"type": "long", "name": "HOUSETYPE_MODE__block of flats",
+    "required": true}, {"type": "long", "name": "HOUSETYPE_MODE__specific housing",
+    "required": true}, {"type": "long", "name": "HOUSETYPE_MODE__terraced house",
+    "required": true}, {"type": "long", "name": "HOUSETYPE_MODE__nan", "required":
+    true}, {"type": "long", "name": "WALLSMATERIAL_MODE__Block", "required": true},
+    {"type": "long", "name": "WALLSMATERIAL_MODE__Mixed", "required": true}, {"type":
+    "long", "name": "WALLSMATERIAL_MODE__Monolithic", "required": true}, {"type":
+    "long", "name": "WALLSMATERIAL_MODE__Others", "required": true}, {"type": "long",
+    "name": "WALLSMATERIAL_MODE__Panel", "required": true}, {"type": "long", "name":
+    "WALLSMATERIAL_MODE__Stone, brick", "required": true}, {"type": "long", "name":
+    "WALLSMATERIAL_MODE__Wooden", "required": true}, {"type": "long", "name": "WALLSMATERIAL_MODE__nan",
+    "required": true}, {"type": "double", "name": "BUREAU_CREDIT_COUNT", "required":
+    false}, {"type": "double", "name": "BUREAU_ACTIVE_CREDIT_COUNT", "required": false},
+    {"type": "double", "name": "BUREAU_DAYS_CREDIT_MAX", "required": false}, {"type":
+    "double", "name": "BUREAU_OVERDUE_CREDIT_COUNT", "required": false}, {"type":
+    "double", "name": "BUREAU_MAX_DAYS_OVERDUE", "required": false}, {"type": "double",
+    "name": "BUREAU_PROLONGATION_SUM", "required": false}, {"type": "double", "name":
+    "BUREAU_BB_HISTORY_CREDIT_COUNT", "required": false}, {"type": "double", "name":
+    "BUREAU_CREDIT_SUM", "required": false}, {"type": "double", "name": "BUREAU_DEBT_SUM",
+    "required": false}, {"type": "double", "name": "BUREAU_OVERDUE_SUM", "required":
+    false}, {"type": "double", "name": "BUREAU_CURRENCY_CURRENCY_1_COUNT", "required":
+    false}, {"type": "double", "name": "BUREAU_CURRENCY_CURRENCY_2_COUNT", "required":
+    false}, {"type": "double", "name": "BUREAU_CURRENCY_CURRENCY_3_COUNT", "required":
+    false}, {"type": "double", "name": "BUREAU_CURRENCY_CURRENCY_4_COUNT", "required":
+    false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_ANOTHER_TYPE_OF_LOAN_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_CAR_LOAN_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_CASH_LOAN_NON_EARMARKED_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_CONSUMER_CREDIT_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_CREDIT_CARD_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_INTERBANK_CREDIT_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_LOAN_FOR_BUSINESS_DEVELOPMENT_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_LOAN_FOR_PURCHASE_OF_SHARES_MARGIN_LENDING_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_LOAN_FOR_THE_PURCHASE_OF_EQUIPMENT_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_LOAN_FOR_WORKING_CAPITAL_REPLENISHMENT_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_MICROLOAN_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_MOBILE_OPERATOR_LOAN_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_MORTGAGE_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_REAL_ESTATE_LOAN_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_CREDIT_TYPE_UNKNOWN_TYPE_OF_LOAN_COUNT",
+    "required": false}, {"type": "double", "name": "BUREAU_ACTIVE_CREDIT_RATIO", "required":
+    false}, {"type": "double", "name": "BUREAU_PROLONGATION_PER_CREDIT", "required":
+    false}, {"type": "double", "name": "BUREAU_BB_HISTORY_RATIO", "required": false},
+    {"type": "double", "name": "BUREAU_DEBT_TO_CREDIT_RATIO", "required": false},
+    {"type": "long", "name": "BUREAU_HAS_HISTORY", "required": true}, {"type": "long",
+    "name": "PREV_APPLICATION_COUNT", "required": true}, {"type": "double", "name":
+    "PREV_APPROVED_RATIO", "required": true}, {"type": "double", "name": "PREV_REFUSED_RATIO",
+    "required": true}, {"type": "double", "name": "PREV_DAYS_DECISION_MAX", "required":
+    true}, {"type": "double", "name": "PREV_CASH_LOAN_RATIO", "required": true}, {"type":
+    "double", "name": "PREV_CONSUMER_LOAN_RATIO", "required": true}, {"type": "double",
+    "name": "PREV_REVOLVING_LOAN_RATIO", "required": true}, {"type": "double", "name":
+    "PREV_APPROVED_ANNUITY_MEAN", "required": true}, {"type": "double", "name": "PREV_APPROVED_CREDIT_TO_APPLICATION_RATIO_MEAN",
+    "required": true}, {"type": "double", "name": "PREV_APPROVED_CNT_PAYMENT_MEAN",
+    "required": true}, {"type": "double", "name": "PREV_INSURED_APPROVAL_RATIO", "required":
+    true}, {"type": "double", "name": "PREV_HIGH_YIELD_APPROVAL_RATIO", "required":
+    true}, {"type": "double", "name": "PREV_APPROVED_CREDIT_SUM", "required": true},
+    {"type": "double", "name": "PREV_LATEST_WAS_REFUSED", "required": true}, {"type":
+    "double", "name": "PREV_POS_HISTORY_RATIO", "required": true}, {"type": "double",
+    "name": "PREV_POS_EVER_SEVERE_DPD", "required": true}, {"type": "double", "name":
+    "PREV_INSTAL_HISTORY_RATIO", "required": true}, {"type": "double", "name": "PREV_INSTAL_LATE_PAYMENT_RATIO_MEAN",
+    "required": true}, {"type": "double", "name": "PREV_INSTAL_MAX_DAYS_LATE", "required":
+    true}, {"type": "double", "name": "PREV_INSTAL_UNDERPAYMENT_RATIO_MEAN", "required":
+    true}, {"type": "double", "name": "PREV_INSTAL_PAYMENT_RATIO_MEAN", "required":
+    true}, {"type": "double", "name": "PREV_CC_HISTORY_RATIO", "required": true},
+    {"type": "double", "name": "PREV_CC_UTILIZATION_MEAN", "required": false}, {"type":
+    "double", "name": "PREV_CC_EVER_SEVERE_DPD", "required": false}, {"type": "double",
+    "name": "PREV_POS_REMAINING_INSTALLMENTS_SUM", "required": true}, {"type": "double",
+    "name": "PREV_CC_BALANCE_LATEST_SUM", "required": false}, {"type": "long", "name":
+    "PREV_HAS_HISTORY", "required": true}]'
+  outputs: '[{"type": "long", "required": true}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-09-22 19:22:15.799213'

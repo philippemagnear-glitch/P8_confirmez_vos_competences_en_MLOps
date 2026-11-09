@@ -1,33 +1,55 @@
-# Byte-compiled / optimized
+# ---------- Environnements Python ----------
+.venv/
+.uv-cache/
+.python/
+venv/
+env/
+
+# ---------- Variables d'environnement ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Cache Python ----------
 __pycache__/
 *.py[cod]
+*$py.class
 
-# Pytest
+# ---------- IDE ----------
+.vscode/
+.idea/
+
+# ---------- Jupyter ----------
+.ipynb_checkpoints/
+
+# ---------- Tests et couverture ----------
 .pytest_cache/
+pytest-cache-files-*/
+pytest-tmp/
+pytest-validation/
+pytest-of-*/
 .coverage
 htmlcov/
 
-# Virtual environment
-.venv/
-
-# VS Code
-.vscode/
-
-# Logs
-*.log
-
-# OS
+# ---------- Fichiers système et temporaires Office ----------
 .DS_Store
 Thumbs.db
+~$*
 
-# notebook
-.ipynb_checkpoints/
+# ---------- Données locales ----------
+/data/raw/
+/data/processed/
 
-# Data
-data/raw/
-data/processed/
+# ---------- MLflow ----------
+/mlflow.db
+/mlflow.db-journal
+/mlflow.db-wal
+/mlflow.db-shm
+/mlruns/
+/mlartifacts/
 
-# MLflow
-mlflow.db
-mlruns/
-mlartifacts/*.zip
+# ---------- Logs ----------
+*.log
+
+# ---------- Instructions locales de Codex ----------
+AGENTS.md

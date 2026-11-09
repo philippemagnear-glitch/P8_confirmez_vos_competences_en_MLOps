@@ -1,0 +1,12 @@
+{
+  "model_name": "credit_scoring_lightgbm",
+  "model_version": "4",
+  "model_id": "m-fdc53dbba6b1405697adc83e088d1462",
+  "run_id": "76ab32f50d79486696c7bc49f41878a9",
+  "run_name": "lightgbm_optimized_final",
+  "dataset_version": "without_bureau_dpd_columns",
+  "threshold": 0.5,
+  "positive_class": 1,
+  "source_artifacts": "data/mlruns/1/models/m-fdc53dbba6b1405697adc83e088d1462/artifacts",
+  "note": "Copie locale autonome de la version 4. Le chemin artifact_path de MLmodel a été rendu relatif ; le modèle et sa signature sont conservés."
+}
