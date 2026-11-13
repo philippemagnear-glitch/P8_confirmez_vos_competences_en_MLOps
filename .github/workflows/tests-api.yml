@@ -1,0 +1,50 @@
+name: Tests API scoring
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GRADIO_ANALYTICS_ENABLED: "False"
+      HF_HUB_OFFLINE: "1"
+      MPLBACKEND: Agg
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: astral-sh/setup-uv@v6
+      - name: Installer les dépendances du projet
+        run: |
+          uv venv --python 3.13 .venv
+          uv pip install --python .venv/bin/python -r requirements.txt
+      - name: Tests unitaires et intégration Gradio
+        run: >-
+          .venv/bin/python -m pytest -c tests/pytest.ini tests -vv
+      - name: Couverture des lignes et des branches par fichier
+        if: ${{ always() && hashFiles('tests/reports/coverage.json') != '' }}
+        run: |
+          .venv/bin/python - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("tests/reports/coverage.json").read_text())
+          print("Fichier | Lignes couvertes | Couverture lignes | Branches couvertes | Couverture branches")
+          for filename, details in report["files"].items():
+              counts = details["summary"]
+              lines = counts["num_statements"]
+              branches = counts["num_branches"]
+              line_pct = 100 * counts["covered_lines"] / lines if lines else 100
+              branch_pct = 100 * counts["covered_branches"] / branches if branches else 100
+              print(
+                  f"{filename} | {counts['covered_lines']}/{lines} | {line_pct:.2f}% | "
+                  f"{counts['covered_branches']}/{branches} | {branch_pct:.2f}%"
+              )
+          PY

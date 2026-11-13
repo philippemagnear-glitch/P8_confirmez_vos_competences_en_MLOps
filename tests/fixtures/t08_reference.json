@@ -1,0 +1,14 @@
+{
+    "client_file":  "client_v4_exact.json",
+    "client_sha256":  null,
+    "model_sha256":  "f5553d02bb1a2487952570cd1b5d8703724e2996c8e25712e72322da1e74df74",
+    "model_id":  "m-fdc53dbba6b1405697adc83e088d1462",
+    "run_id":  "76ab32f50d79486696c7bc49f41878a9",
+    "score":  0.17086662346702958,
+    "absolute_tolerance":  1E-10,
+    "prediction":  0,
+    "threshold":  0.5,
+    "model_name":  "credit_scoring_lightgbm",
+    "model_version":  "4",
+    "note":  "Le JSON exact associe a ce score est absent. client_valid.json est synthetique et ne doit pas lui etre substitue. Fournir le JSON exact et son empreinte liee a cette reference avant execution de T08."
+}

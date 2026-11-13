@@ -11,7 +11,7 @@ os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 import gradio as gr
 import pandas as pd
 
-from app.prediction import CreditScoringModel
+from app.prediction import CreditScoringModel, InputValidationError
 
 
 LOGGER = logging.getLogger(__name__)
@@ -41,9 +41,10 @@ def load_demo_clients(model: CreditScoringModel) -> dict[str, dict]:
     return dict(zip(frame["SK_ID_CURR"].tolist(), clients, strict=True))
 
 
-def create_demo() -> gr.Blocks:
+def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
     """Charge une fois le modèle et construit l'interface et ses points d'accès."""
-    model = CreditScoringModel()
+    if model is None:
+        model = CreditScoringModel()
     try:
         demo_clients = load_demo_clients(model)
     except (OSError, ValueError) as error:
@@ -54,13 +55,15 @@ def create_demo() -> gr.Blocks:
         """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""
         try:
             return model.predict(client)
-        except ValueError as error:
-            raise gr.Error(str(error)) from error
+        except InputValidationError as error:
+            raise gr.Error(str(error), print_exception=False) from None
         except Exception as error:
-            LOGGER.exception("Échec de la prédiction.")
+            # Le texte de l'exception peut contenir des données client.
+            LOGGER.error("Échec de la prédiction (%s).", type(error).__name__)
             raise gr.Error(
-                "La prédiction a échoué. Consulter les logs du serveur."
-            ) from error
+                "La prédiction a échoué. Consulter les logs du serveur.",
+                print_exception=False,
+            ) from None
 
     def get_schema() -> dict:
         """Retourne les variables attendues, leurs types et leur caractère obligatoire."""
@@ -68,14 +71,16 @@ def create_demo() -> gr.Blocks:
 
     def select_client(client_id: str) -> tuple[str, None]:
         if client_id not in demo_clients:
-            raise gr.Error("Sélectionner un client de l'échantillon.")
+            raise gr.Error("Sélectionner un client de l'échantillon.", print_exception=False)
         return json.dumps(demo_clients[client_id], indent=2, allow_nan=False), None
 
     def predict_json(client_json: str) -> dict:
         try:
             client = json.loads(client_json)
-        except (json.JSONDecodeError, TypeError) as error:
-            raise gr.Error("Le contenu saisi n'est pas un JSON valide.") from error
+        except (json.JSONDecodeError, TypeError):
+            raise gr.Error(
+                "Le contenu saisi n'est pas un JSON valide.", print_exception=False
+            ) from None
         return predict(client)
 
     with gr.Blocks(title="Scoring crédit", analytics_enabled=False) as demo:
@@ -105,12 +110,13 @@ def create_demo() -> gr.Blocks:
         result = gr.JSON(label="Résultat")
         with gr.Accordion("Contrat des données d'entrée", open=False):
             gr.Markdown(
-                "Utilisez les noms du schéma ci-dessous. Les colonnes inconnues sont "
-                "refusées. Les valeurs numériques manquantes s'écrivent `null` ; "
-                "elles sont traitées par l'imputation du modèle. "
+                "Toutes les clés du schéma ci-dessous sont obligatoires. "
+                "Les colonnes inconnues sont refusées. Les valeurs numériques "
+                "manquantes s'écrivent `null` et sont traitées par l'imputation "
+                "du modèle. La valeur `0` est conservée. "
                 "L'identifiant client et TARGET ne sont pas des variables d'entrée."
             )
-            gr.JSON(value=model.schema(), label="Signature MLflow")
+            gr.JSON(value=model.schema(), label="Contrat d'entrée de l'API")
 
         load_button.click(
             select_client,

@@ -15,6 +15,65 @@ ARTIFACTS_PATH = (
 )
 
 
+class InputValidationError(ValueError):
+    """Distingue une requête incorrecte d'une panne interne du calcul."""
+
+
+# Définitions Home Credit et agrégations des notebooks 01, 02 et 03.
+NON_NEGATIVE_FIELDS = {
+    "OWN_CAR_AGE", "CNT_CHILDREN", "CNT_FAM_MEMBERS",
+    "OBS_30_CNT_SOCIAL_CIRCLE", "DEF_30_CNT_SOCIAL_CIRCLE",
+    "OBS_60_CNT_SOCIAL_CIRCLE", "DEF_60_CNT_SOCIAL_CIRCLE",
+    "BUREAU_MAX_DAYS_OVERDUE", "BUREAU_PROLONGATION_SUM",
+    "PREV_APPLICATION_COUNT", "PREV_INSTAL_MAX_DAYS_LATE",
+    "PREV_APPROVED_CNT_PAYMENT_MEAN", "PREV_POS_REMAINING_INSTALLMENTS_SUM",
+    "AMT_INCOME_TOTAL", "AMT_CREDIT", "AMT_ANNUITY", "AMT_GOODS_PRICE",
+    "BUREAU_CREDIT_SUM", "BUREAU_OVERDUE_SUM",
+    "PREV_APPROVED_ANNUITY_MEAN", "PREV_APPROVED_CREDIT_SUM",
+    "BUREAU_PROLONGATION_PER_CREDIT",
+    "PREV_APPROVED_CREDIT_TO_APPLICATION_RATIO_MEAN",
+}
+PAST_DATE_FIELDS = {
+    "DAYS_EMPLOYED", "DAYS_REGISTRATION", "DAYS_ID_PUBLISH",
+    "DAYS_LAST_PHONE_CHANGE", "BUREAU_DAYS_CREDIT_MAX", "PREV_DAYS_DECISION_MAX",
+}
+# Ces rapports sont des moyennes d'indicateurs ou des parts d'un nombre total.
+PROPORTION_FIELDS = {
+    "BUREAU_ACTIVE_CREDIT_RATIO", "BUREAU_BB_HISTORY_RATIO",
+    "PREV_APPROVED_RATIO", "PREV_REFUSED_RATIO", "PREV_CASH_LOAN_RATIO",
+    "PREV_CONSUMER_LOAN_RATIO", "PREV_REVOLVING_LOAN_RATIO",
+    "PREV_INSURED_APPROVAL_RATIO", "PREV_HIGH_YIELD_APPROVAL_RATIO",
+    "PREV_POS_HISTORY_RATIO", "PREV_INSTAL_HISTORY_RATIO",
+    "PREV_INSTAL_LATE_PAYMENT_RATIO_MEAN", "PREV_INSTAL_UNDERPAYMENT_RATIO_MEAN",
+    "PREV_CC_HISTORY_RATIO",
+}
+
+
+def validate_value(name: str, value: Real) -> None:
+    """Applique seulement les bornes établies pour les variables préparées.
+
+    Les soldes et les rapports de montants ne sont pas assimilés à des
+    proportions. Le revenu nul reste accepté faute de règle contraire établie.
+    """
+    is_count = (
+        name.startswith("AMT_REQ_CREDIT_BUREAU_")
+        or (name.startswith("BUREAU_") and name.endswith("_COUNT"))
+    )
+    if (name in NON_NEGATIVE_FIELDS or is_count) and value < 0:
+        raise InputValidationError(f"{name} : la valeur doit être supérieure ou égale à 0.")
+    if name == "DAYS_BIRTH" and value >= 0:
+        raise InputValidationError(f"{name} : la date de naissance relative doit être < 0.")
+    if name == "HOUR_APPR_PROCESS_START" and not 0 <= value <= 23:
+        raise InputValidationError(f"{name} : l'heure doit être comprise entre 0 et 23.")
+    if name in PAST_DATE_FIELDS and value > 0:
+        raise InputValidationError(
+            f"{name} : une date relative passée doit être <= 0 ; "
+            "les sentinelles brutes doivent être préparées en null."
+        )
+    if name in PROPORTION_FIELDS and not 0 <= value <= 1:
+        raise InputValidationError(f"{name} : la proportion doit être comprise entre 0 et 1.")
+
+
 class CreditScoringModel:
     """Associe le pipeline entraîné à sa signature et à sa provenance."""
 
@@ -55,7 +114,7 @@ class CreditScoringModel:
         self.default_class_index = classes.index(1)
 
     def schema(self) -> dict:
-        """Expose le contrat d'entrée sans recopier les noms de variables."""
+        """Expose les variables MLflow avec une présence obligatoire côté API."""
         return {
             "model_name": self.provenance["model_name"],
             "model_version": self.provenance["model_version"],
@@ -64,7 +123,7 @@ class CreditScoringModel:
                 {
                     "name": column.name,
                     "type": column.type.name,
-                    "required": column.required,
+                    "required": True,
                     "nullable": column.type.name != "boolean",
                 }
                 for column in self.columns
@@ -75,19 +134,19 @@ class CreditScoringModel:
         """Valide un client et ordonne ses variables selon la signature MLflow.
 
         Les nombres manquants deviennent des NaN pour l'imputation sauvegardée.
-        Une colonne facultative omise est traitée comme une valeur manquante.
+        Toutes les clés sont obligatoires, même si la signature MLflow les
+        déclare facultatives. Seul None indique une valeur manquante : 0 est
+        conservé comme valeur numérique.
         Les chaînes numériques et les nombres non finis sont refusés.
         """
         if not isinstance(client, dict):
-            raise ValueError("L'entrée doit être un objet JSON représentant un seul client.")
+            raise InputValidationError(
+                "L'entrée doit être un objet JSON représentant un seul client."
+            )
         if any(not isinstance(name, str) for name in client):
-            raise ValueError("Les noms des variables doivent être des chaînes.")
+            raise InputValidationError("Les noms des variables doivent être des chaînes.")
         unknown = sorted(set(client).difference(self.feature_names))
-        missing = [
-            column.name
-            for column in self.columns
-            if column.required and column.name not in client
-        ]
+        missing = [name for name in self.feature_names if name not in client]
         if missing or unknown:
             details = []
             if missing:
@@ -96,42 +155,46 @@ class CreditScoringModel:
                 )
             if unknown:
                 details.append("Variables inconnues : " + ", ".join(unknown))
-            raise ValueError("\n".join(details))
+            raise InputValidationError("\n".join(details))
 
         values = {}
         dtypes = {}
         for column in self.columns:
-            value = client.get(column.name)
+            value = client[column.name]
             data_type = column.type.name
             if value is None:
                 if data_type == "boolean":
-                    raise ValueError(f"{column.name} : un booléen est attendu.")
+                    raise InputValidationError(f"{column.name} : un booléen est attendu.")
                 values[column.name] = float("nan")
                 dtypes[column.name] = "float64"
                 continue
             if data_type == "boolean":
                 if not isinstance(value, bool):
-                    raise ValueError(f"{column.name} : un booléen est attendu.")
+                    raise InputValidationError(f"{column.name} : un booléen est attendu.")
                 dtypes[column.name] = "bool"
             elif data_type in {"integer", "long"}:
                 if isinstance(value, bool) or not isinstance(value, Integral):
-                    raise ValueError(f"{column.name} : un entier JSON est attendu.")
+                    raise InputValidationError(f"{column.name} : un entier JSON est attendu.")
                 bits = 32 if data_type == "integer" else 64
                 if not -(2 ** (bits - 1)) <= value < 2 ** (bits - 1):
-                    raise ValueError(
+                    raise InputValidationError(
                         f"{column.name} : entier hors des limites du schéma."
                     )
                 dtypes[column.name] = f"int{bits}"
             else:
                 if isinstance(value, bool) or not isinstance(value, Real):
-                    raise ValueError(f"{column.name} : un nombre JSON est attendu.")
+                    raise InputValidationError(f"{column.name} : un nombre JSON est attendu.")
                 try:
                     finite = math.isfinite(value)
                 except OverflowError:
                     finite = False
                 if not finite:
-                    raise ValueError(f"{column.name} : utiliser un nombre fini ou null.")
+                    raise InputValidationError(
+                        f"{column.name} : utiliser un nombre fini ou null."
+                    )
                 dtypes[column.name] = "float64"
+            if data_type != "boolean":
+                validate_value(column.name, value)
             values[column.name] = value
 
         return pd.DataFrame([values], columns=self.feature_names).astype(dtypes)

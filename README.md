@@ -1,197 +1,118 @@
-# Credit Scoring — Pipeline MLOps
+# API de scoring crédit — Projet 8 MLOps
 
-Projet de scoring crédit réalisé dans le cadre d'un TP OpenClassrooms. L'objectif est de prédire le risque de défaut d'un client à partir des données **Home Credit Default Risk**, tout en tenant compte du coût métier des erreurs de prédiction.
+Projet OpenClassrooms exposant un modèle LightGBM entraîné lors d'un précédent TP.
+L'application reçoit les données préparées d'un client et retourne un score de défaut.
+Elle ne réalise ni entraînement, ni jointures, ni encodage des données brutes.
 
-Le projet couvre la préparation des données, les jointures entre plusieurs historiques de crédit, la comparaison de modèles avec MLflow, l'optimisation de LightGBM et l'enregistrement du pipeline final dans le Model Registry.
+## Fonctionnalités
 
-## Objectif métier
+- Interface Gradio avec sélection d'un client de démonstration ou saisie JSON.
+- API Gradio `predict` pour le score et `schema` pour le contrat d'entrée.
+- Chargement du modèle une fois au démarrage, puis réutilisation entre les requêtes.
+- Validation des champs, types et bornes établies pour les données préparées.
+- Tests unitaires et d'intégration, couverture des lignes et des branches.
+- Workflow GitHub Actions exécutant les tests sur les `push` et `pull_request`.
 
-La classe positive (`TARGET = 1`) représente un client en défaut de paiement.
+## Modèle et contrat d'entrée
 
-Les deux erreurs n'ont pas le même impact :
+Le modèle `credit_scoring_lightgbm`, version `4`, est conservé dans
+`app/artifacts/credit_scoring_lightgbm/4/`. Le pipeline contient l'imputation et LightGBM.
+Les noms, types et ordre des variables proviennent de la signature du fichier `MLmodel`.
+La provenance et le seuil de décision sont décrits dans `provenance.json`.
+L'application n'a besoin ni d'une base MLflow ni d'un serveur MLflow.
 
-- **FN** : mauvais client prédit bon, donc crédit accordé à tort ;
-- **FP** : bon client prédit mauvais, donc crédit refusé à tort.
+Chaque requête représente un seul client :
 
-Un faux négatif étant considéré comme dix fois plus coûteux, le critère principal est :
+- les **310 clés** du contrat API sont obligatoires, même si la signature MLflow d'origine indique des champs facultatifs ;
+- les clés supplémentaires, dont `SK_ID_CURR` et `TARGET`, sont refusées ;
+- `null` est accepté pour les valeurs numériques manquantes et transmis à l'imputation ;
+- `0` conserve sa valeur ; un champ booléen attend `true` ou `false` et refuse `null` ;
+- le score correspond à la probabilité de la classe de défaut `1` ;
+- la prédiction vaut `1` pour un score supérieur ou égal au seuil de `0.5`.
 
-```text
-coût métier = 10 × FN + FP
-```
+Le revenu nul reste accepté. Les soldes signés et les rapports de montants ne sont pas
+systématiquement bornés à `[0, 1]`. Les proportions établies, compteurs et dates relatives
+font l'objet de validations spécifiques dans `app/prediction.py`.
 
-La ROC AUC, le recall de la classe 1 et le F1-score complètent l'interprétation, mais ne remplacent pas l'objectif métier lors de l'optimisation finale.
-
-## Pipeline du projet
-
-```text
-Données brutes
-    ↓
-Exploration, nettoyage et encodage
-    ↓
-Agrégation de bureau_balance puis jointure avec bureau
-    ↓
-Agrégation des historiques POS, paiements et cartes de crédit
-    ↓
-Enrichissement de previous_application puis agrégation par client
-    ↓
-Contrôles avant modélisation
-    ↓
-Comparaison de quatre familles de modèles avec MLflow
-    ↓
-Sélection du dataset, optimisation de LightGBM et du seuil métier
-    ↓
-Évaluation finale, feature importance et Model Registry
-```
-
-Les tables historiques ne sont jamais jointes directement lorsqu'elles contiennent plusieurs lignes par crédit. Elles sont d'abord agrégées par `SK_ID_PREV`, puis les anciennes demandes sont agrégées par `SK_ID_CURR`. Cette méthode évite la multiplication des lignes et produit une seule ligne de modélisation par client.
-
-## Notebooks
-
-Les notebooks doivent être exécutés dans l'ordre.
-
-| Notebook | Rôle |
-|---|---|
-| `01_exploration_nettoyage_application_train_test.ipynb` | exploration, traitement des anomalies, encodage et préparation de `application_train` et `application_test` |
-| `02_jointure_bureau_balance_bureau.ipynb` | agrégation de l'historique mensuel du bureau, enrichissement de `bureau`, puis jointure avec les applications |
-| `03_enrichissement_previous_application.ipynb` | agrégation de `POS_CASH_balance`, `installments_payments` et `credit_card_balance`, puis enrichissement des clients |
-| `04_controles_avant_modelisation.ipynb` | contrôles structurels, valeurs manquantes, constantes, déséquilibre de la cible et risque de fuite de données |
-| `05_modelisation_mlflow.ipynb` | comparaison de Logistic Regression, Random Forest, XGBoost et LightGBM, avec et sans pondération des classes |
-| `06_optimisation_modele.ipynb` | sélection de la version du dataset, optimisation métier de LightGBM, évaluation finale et enregistrement du modèle |
-
-Une synthèse détaillée des jointures du notebook 03 est disponible dans [`docs/03_synthese_jointures_feature_engineering.md`](docs/03_synthese_jointures_feature_engineering.md).
-
-## Modélisation et résultats
-
-La comparaison initiale montre que les modèles non pondérés détectent mal la classe minoritaire. LightGBM pondéré est retenu car il offre un compromis cohérent entre recall, faux négatifs, faux positifs, F1-score, ROC AUC et stabilité en validation croisée.
-
-Dans le notebook 06 :
-
-- le split est stratifié : 80 % pour l'entraînement et la validation croisée, 20 % conservés pour l'évaluation finale ;
-- cinq versions du dataset sont comparées avec un LightGBM de référence identique ;
-- la version sans `BUREAU_EVER_SEVERE_DPD` et `BUREAU_EVER_RECENT_DPD_12M` est retenue avec 310 variables ;
-- 16 configurations LightGBM et 17 seuils fixes sont évalués sur 5 folds stratifiés ;
-- seul le coût métier moyen sert à choisir le couple hyperparamètres-seuil.
-
-Configuration retenue :
-
-| Paramètre | Valeur |
-|---|---:|
-| `n_estimators` | 300 |
-| `learning_rate` | 0.05 |
-| `num_leaves` | 31 |
-| `min_child_samples` | 20 |
-| seuil de décision | 0.50 |
-
-Résultats sur les 61 502 clients du jeu final jamais utilisé pour la sélection :
-
-| Métrique | Résultat |
-|---|---:|
-| coût métier | 30 807 |
-| faux négatifs | 1 568 |
-| faux positifs | 15 127 |
-| recall classe 1 | 0.684 |
-| F1-score | 0.289 |
-| ROC AUC | 0.778 |
-
-Le coût normalisé passe d'environ 421,6 à 500,9 pour 1 000 clients entre l'entraînement et le jeu final. Avec la baisse du recall et de la ROC AUC, cet écart indique un surapprentissage modéré.
-
-L'importance globale par gain met principalement en avant `EXT_SOURCE_2`, `EXT_SOURCE_3`, `EXT_SOURCE_1` et plusieurs variables issues des historiques de paiement. Elle décrit l'utilisation des variables par LightGBM, sans établir de relation causale.
-
-## MLflow
-
-MLflow utilise une base SQLite locale pour suivre :
-
-- les paramètres des modèles ;
-- les métriques de validation et d'évaluation ;
-- les tags décrivant les étapes expérimentales ;
-- le graphique d'importance des variables ;
-- le pipeline final avec son preprocessing.
-
-Le modèle final est enregistré dans le Model Registry sous le nom :
+## Structure
 
 ```text
-credit_scoring_lightgbm
+.github/workflows/tests-api.yml        # intégration continue
+app/
+  main.py                             # interface et endpoints Gradio
+  prediction.py                       # chargement, validation et prédiction
+  artifacts/credit_scoring_lightgbm/4/ # pipeline et métadonnées sélectionnés
+data/
+  raw/                                # sources locales conservées, immuables
+  processed/                          # données locales préparées
+  
+docs/plan_tests_api_scoring.md         # plan T01 à T10
+tests/
+  fixtures/                           # JSON complet, schéma et référence T08
+  conftest.py                         # fixtures et serveur temporaire
+  test_api.py                         # appels HTTP et callbacks Gradio
+  test_prediction.py                  # tests de validation et de prédiction
+  pytest.ini                          # configuration partagée local/CI
+  coverage.ini                        # stockage de la couverture
+  reports/                            # rapports générés, ignorés par Git
+  .pytest_cache/                      # cache généré, ignoré par Git
+  .tmp/                               # fichiers temporaires des tests
+requirements.txt
 ```
 
-Pour ouvrir l'interface depuis la racine du projet :
-
-```bash
-mlflow ui --backend-store-uri sqlite:///mlflow.db
-```
-
-L'interface est ensuite accessible sur <http://127.0.0.1:5000>.
-
-La base `mlflow.db` et les artefacts locaux sont volontairement ignorés par Git. Ils sont recréés lors de l'exécution des notebooks de modélisation.
-
-## Structure du dépôt
-
-```text
-.
-├── data/
-│   ├── raw/                 # données sources non versionnées
-│   └── processed/           # datasets intermédiaires non versionnés
-├── docs/                    # documentation des tables et jointures
-├── notebooks/               # pipeline exécutable de 01 à 06
-├── requirements.txt         # dépendances Python
-├── .gitignore
-└── README.md
-```
+Les notebooks, documents d'entraînement et anciens runs MLflow ne font plus partie
+du projet courant. Leur historique Git reste disponible. Les données sont conservées
+pour la démonstration et les futurs travaux de monitoring, sans être versionnées.
 
 ## Installation
 
-Pré-requis : Python et un environnement virtuel.
-
-```bash
-python -m venv .venv
-```
-
-Activation sous Windows :
+Prérequis : Python 3.13 et `uv`. Depuis la racine du dépôt, sous PowerShell :
 
 ```powershell
-.venv\Scripts\Activate.ps1
+uv venv --python 3.13 .venv
+uv pip install --python .venv\Scripts\python.exe -r requirements.txt
 ```
 
-Installation des dépendances :
+La première commande est destinée à une installation initiale ; conserver l'environnement
+existant s'il a déjà été créé. Les dépendances directes sont pandas, MLflow, scikit-learn,
+LightGBM, Gradio, pytest et pytest-cov.
 
-```bash
-python -m pip install -r requirements.txt
+## Utilisation
+
+```powershell
+.\.venv\Scripts\python.exe -m app.main
 ```
 
-Principales bibliothèques : pandas, scikit-learn, LightGBM, XGBoost, MLflow, Matplotlib et Jupyter.
+Ouvrir `http://127.0.0.1:7860`. Le serveur est local et le partage public est désactivé.
+Pour appliquer une modification Python, arrêter le serveur avec `Ctrl+C`, puis le relancer.
 
-## Données
+Pour la sélection de clients, placer le fichier `application_test_final_encoded.csv`
+dans `data/processed/`. L'interface lit au maximum ses 50 premières lignes et sélectionne
+les variables attendues. Ce CSV n'est pas nécessaire aux appels directs à l'API.
 
-Les données proviennent de la compétition Kaggle [Home Credit Default Risk](https://www.kaggle.com/competitions/home-credit-default-risk/data). Elles ne sont pas incluses dans ce dépôt.
+Les fonctions publiques sont accessibles par le protocole Gradio, notamment avec
+`gradio_client`. Le lien API de l'interface décrit les appels `predict` et `schema`.
+Il ne s'agit pas d'une route REST classique `POST /predict`.
 
-Placer les fichiers suivants dans `data/raw/` :
+## Tests et couverture
 
-```text
-application_train.csv
-application_test.csv
-bureau.csv
-bureau_balance.csv
-previous_application.csv
-POS_CASH_balance.csv
-installments_payments.csv
-credit_card_balance.csv
+Commande à exécuter depuis la racine du projet :
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest -c tests/pytest.ini tests -q
 ```
 
-## Exécution
+La configuration lance les tests et la couverture des lignes et branches de
+`app/main.py` et `app/prediction.py`. Elle place les rapports dans `tests/reports/`
+(`coverage.json` et `.coverage`), le cache dans `tests/.pytest_cache/` et les fichiers
+temporaires dans `tests/.tmp/`. Ces dossiers sont générés automatiquement.
 
-Les chemins des notebooks sont définis relativement au dossier `notebooks`. Pour conserver cette organisation :
+Les tests utilisent un JSON synthétique complet, indépendant du CSV de démonstration,
+et un pipeline simulé. Les tests d'intégration démarrent puis arrêtent un serveur local.
+T08 requiert le JSON exact `tests/fixtures/client_v4_exact.json`, son empreinte liée à
+la référence dans `t08_reference.json` et l'artefact exact v4. Il est explicitement
+ignoré si ces éléments ne sont pas disponibles ; le JSON synthétique ne le remplace pas.
 
-```bash
-cd notebooks
-jupyter notebook
-```
-
-Exécuter ensuite les notebooks de `01` à `06`. Les trois premiers génèrent progressivement les fichiers nécessaires dans `data/processed/`.
-
-Le notebook 06 utilise une séparation finale jamais consultée pendant la sélection du dataset, des hyperparamètres ou du seuil. Cette séparation doit être conservée pour éviter toute fuite d'information vers l'évaluation finale.
-
-## Limites
-
-- Le coût `10 × FN + FP` traduit une hypothèse métier pédagogique et devrait être calibré avec des coûts financiers réels avant une mise en production.
-- Le modèle présente un surapprentissage modéré entre l'entraînement et les données finales.
-- L'importance LightGBM est globale et ne fournit ni explication locale complète ni interprétation causale.
-- Le projet couvre l'expérimentation et le suivi du modèle, mais pas encore son déploiement en production ni son monitoring après déploiement.
+La CI utilise la même configuration et échoue si un test échoue. Elle n'effectue pas
+encore de déploiement. Docker, le stockage persistant des appels, l'analyse de dérive
+et le tableau de bord de monitoring restent à réaliser.

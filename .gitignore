@@ -24,11 +24,11 @@ __pycache__/
 
 # ---------- Tests et couverture ----------
 .pytest_cache/
-pytest-cache-files-*/
-pytest-tmp/
-pytest-validation/
-pytest-of-*/
+/tests/.tmp/
+/tests/reports/
 .coverage
+.coverage.*
+coverage.json
 htmlcov/
 
 # ---------- Fichiers système et temporaires Office ----------
@@ -47,6 +47,8 @@ Thumbs.db
 /mlflow.db-shm
 /mlruns/
 /mlartifacts/
+/data/mlflow.db*
+/data/mlruns/
 
 # ---------- Logs ----------
 *.log
