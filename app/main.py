@@ -141,6 +141,19 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
         gr.api(
             predict,
             api_name="predict",
+            api_description=(
+                "Reçoit un objet JSON contenant les 310 clés obligatoires et retourne "
+                "score, prediction, threshold, model_name et model_version. "
+                "Les valeurs numériques null sont imputées ; zéro est conservé. "
+                "Données invalides : gradio_client lève AppError avec un message "
+                "nommant le champ à corriger. Panne interne du calcul : AppError "
+                "avec le message générique « La prédiction a échoué. Consulter les "
+                "logs du serveur. », sans données client ni détails internes. "
+                "Aucun nouveau score n'est retourné en cas d'erreur. "
+                "En HTTP brut, le POST /gradio_api/call/predict fournit un event_id ; "
+                "le GET associé transmet un événement SSE complete (résultat) ou "
+                "error (erreur). Le statut du POST ne suffit pas à conclure au succès."
+            ),
             concurrency_id="prediction",
             concurrency_limit=1,
         )

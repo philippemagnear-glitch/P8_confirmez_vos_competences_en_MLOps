@@ -1,9 +1,7 @@
 """Appels HTTP Gradio depuis un client tiers et tests des callbacks de l'interface."""
 
-import hashlib
 import json
 import logging
-from pathlib import Path
 from unittest.mock import Mock
 
 import gradio as gr
@@ -12,10 +10,8 @@ import pytest
 from gradio_client.exceptions import AppError
 
 from app import main
-from app.prediction import ARTIFACTS_PATH, CreditScoringModel
-
-
-FIXTURES = Path(__file__).parent / "fixtures"
+from app.prediction import CreditScoringModel
+from verifier_api_deployee import load_reference, verify_api, verify_model_artifact
 
 
 def callback(demo, name):
@@ -53,40 +49,21 @@ def test_T03_ui_malformed_json(scorer, tmp_path, monkeypatch, text):
     scorer.pipeline.predict_proba.assert_not_called()
 
 
-def test_T08_exact_v4_reference_through_predict(serve_api):
-    reference = json.loads((FIXTURES / "t08_reference.json").read_text(encoding="utf-8"))
-    client_path = FIXTURES / reference["client_file"]
-    if not client_path.is_file():
-        pytest.skip(
-            "T08 non exécuté : JSON exact client_v4_exact.json associé au score "
-            "0.17086662346702958 absent ; aucune substitution par le JSON synthétique."
-        )
-    if not reference["client_sha256"]:
-        pytest.skip("T08 non exécuté : empreinte de la référence JSON exacte non fournie.")
-    assert hashlib.sha256(client_path.read_bytes()).hexdigest() == reference["client_sha256"], (
-        "Le JSON fourni ne correspond pas à la référence exacte de T08."
-    )
-    for filename in ("MLmodel", "model.pkl", "provenance.json"):
-        if not (ARTIFACTS_PATH / filename).is_file():
-            pytest.skip(f"T08 non exécuté : artefact version 4 incomplet ({filename} absent).")
-    model_hash = hashlib.sha256((ARTIFACTS_PATH / "model.pkl").read_bytes()).hexdigest()
-    if model_hash != reference["model_sha256"]:
-        pytest.skip("T08 non exécuté : le pipeline exact de version 4 est indisponible.")
-    provenance = json.loads((ARTIFACTS_PATH / "provenance.json").read_text(encoding="utf-8"))
-    for name in ("model_name", "model_version", "model_id", "run_id"):
-        assert provenance[name] == reference[name]
+def test_T08_real_v4_shared_reference_through_predict(serve_api):
+    _, reference = load_reference()
+    verify_model_artifact(reference)
     model = CreditScoringModel()
-    payload = json.loads(client_path.read_text(encoding="utf-8"))
     with serve_api(model) as server:
-        result = server.client.submit(client=payload, api_name="/predict").result(timeout=30)
-    assert result["score"] == pytest.approx(
-        reference["score"], rel=0, abs=reference["absolute_tolerance"]
-    )
-    for name in ("prediction", "threshold", "model_name", "model_version"):
-        assert result[name] == reference[name]
+        # La même vérification HTTP sera exécutée sur l'image Docker en CI.
+        verify_api(server.url, timeout=30)
 
 
 def test_T09_missing_key_reaches_third_party(api, client_data):
+    api_info = api.client.view_api(print_info=False, return_format="dict")
+    description = api_info["named_endpoints"]["/predict"]["description"]
+    assert "AppError" in description
+    assert "La prédiction a échoué" in description
+    assert "event_id" in description and "SSE" in description
     del client_data["OWN_CAR_AGE"]
     with pytest.raises(AppError, match="Variables obligatoires absentes.*OWN_CAR_AGE"):
         api.client.submit(client=client_data, api_name="/predict").result(timeout=20)

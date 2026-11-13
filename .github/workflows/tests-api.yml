@@ -1,4 +1,4 @@
-name: Tests API scoring
+name: API scoring - test build deploy
 
 on:
   push:
@@ -7,13 +7,17 @@ on:
 permissions:
   contents: read
 
+env:
+  IMAGE_TAG: credit-scoring:${{ github.sha }}
+
 jobs:
-  tests-api:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
       GRADIO_ANALYTICS_ENABLED: "False"
       HF_HUB_OFFLINE: "1"
+      MLFLOW_DISABLE_AGENT_HINT: "1"
       MPLBACKEND: Agg
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +31,7 @@ jobs:
           uv pip install --python .venv/bin/python -r requirements.txt
       - name: Tests unitaires et intégration Gradio
         run: >-
-          .venv/bin/python -m pytest -c tests/pytest.ini tests -vv
+          .venv/bin/python -m pytest
       - name: Couverture des lignes et des branches par fichier
         if: ${{ always() && hashFiles('tests/reports/coverage.json') != '' }}
         run: |
@@ -48,3 +52,64 @@ jobs:
                   f"{counts['covered_branches']}/{branches} | {branch_pct:.2f}%"
               )
           PY
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      image_id: ${{ steps.image.outputs.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construire et exporter l'image testée
+        id: image
+        run: |
+          docker build --tag "$IMAGE_TAG" .
+          echo "id=$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" >> "$GITHUB_OUTPUT"
+          docker save --output "$RUNNER_TEMP/scoring-image.tar" "$IMAGE_TAG"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scoring-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/scoring-image.tar
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/download-artifact@v4
+        with:
+          name: scoring-image-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/scoring-image
+      - name: Charger exactement l'image produite par build
+        env:
+          EXPECTED_IMAGE_ID: ${{ needs.build.outputs.image_id }}
+        run: |
+          docker load --input "$RUNNER_TEMP/scoring-image/scoring-image.tar"
+          actual_id="$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")"
+          if [ "$actual_id" != "$EXPECTED_IMAGE_ID" ]; then
+            echo "L'image reçue diffère de celle produite par le job build."
+            exit 1
+          fi
+      - name: Démarrer le conteneur sur la boucle locale du runner
+        run: docker run --detach --name credit-scoring-ci --publish 127.0.0.1:7860:7860 "$IMAGE_TAG"
+      - name: Attendre puis vérifier schema et predict avec le vrai modèle
+        run: python tests/verifier_api_deployee.py --url http://127.0.0.1:7860 --timeout 120
+      - name: Journaux du conteneur en cas d'échec
+        if: ${{ failure() }}
+        run: |
+          docker logs --timestamps --tail 200 credit-scoring-ci 2>&1 || true
+          docker inspect --format '{{json .State}}' credit-scoring-ci 2>/dev/null || true
+      - name: Arrêter et supprimer le conteneur
+        if: ${{ always() }}
+        run: |
+          if docker container inspect credit-scoring-ci >/dev/null 2>&1; then
+            docker rm --force credit-scoring-ci
+          fi

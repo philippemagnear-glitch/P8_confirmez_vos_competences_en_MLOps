@@ -1,4 +1,4 @@
-"""Données autonomes, pipeline simulé et serveur Gradio temporaire."""
+"""Données de référence, pipeline simulé et serveur Gradio temporaire."""
 
 import copy
 import json
@@ -19,7 +19,7 @@ from mlflow.models import Model, ModelSignature
 from mlflow.types import ColSpec, Schema
 
 from app import main
-from app.prediction import CreditScoringModel
+from app.prediction import ARTIFACTS_PATH, CreditScoringModel
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -59,7 +59,7 @@ def build_scorer(path, specs, score=0.25, classes=(0, 1)):
     )
     pipeline = FakePipeline([spec["name"] for spec in specs], score, classes)
     loader = Mock(return_value=pipeline)
-    # Aucun artefact réel n'est nécessaire aux tests simulés, même en CI.
+    # Les colonnes proviennent de MLmodel ; le pipeline de calcul est simulé.
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("app.prediction.Model.load", Mock(return_value=metadata))
         patch.setattr("app.prediction.mlflow.sklearn.load_model", loader)
@@ -69,12 +69,19 @@ def build_scorer(path, specs, score=0.25, classes=(0, 1)):
 
 @pytest.fixture(scope="session")
 def schema_specs():
-    return json.loads((FIXTURES / "schema_v4.json").read_text(encoding="utf-8"))
+    """Lit la signature réelle une fois, sans désérialiser model.pkl."""
+    metadata = Model.load(str(ARTIFACTS_PATH / "MLmodel"))
+    if metadata.signature is None or metadata.signature.inputs is None:
+        pytest.fail("L'artefact sélectionné doit contenir une signature d'entrée MLflow.")
+    return [
+        {"name": column.name, "type": column.type.name, "required": column.required}
+        for column in metadata.signature.inputs.inputs
+    ]
 
 
 @pytest.fixture
 def client_data():
-    # Ce JSON synthétique n'est pas la référence numérique de T08.
+    # Même ligne synthétique pour les tests unitaires, T08 et le conteneur.
     return json.loads((FIXTURES / "client_valid.json").read_text(encoding="utf-8"))
 
 
@@ -112,7 +119,7 @@ def serve_api(tmp_path_factory):
                 run_history=False, footer_links=["api"],
             )
             client = Client(url, verbose=False, httpx_kwargs={"trust_env": False})
-            yield SimpleNamespace(client=client, demo=demo)
+            yield SimpleNamespace(client=client, demo=demo, url=url)
         finally:
             if client is not None:
                 client.close()

@@ -1,0 +1,8 @@
+# Seuls l'application, son artefact et les dépendances entrent dans l'image.
+**
+!Dockerfile
+!requirements.txt
+!app/
+!app/**
+app/**/__pycache__/
+app/**/*.pyc
