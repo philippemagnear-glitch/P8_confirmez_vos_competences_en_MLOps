@@ -85,6 +85,12 @@ def client_data():
     return json.loads((FIXTURES / "client_valid.json").read_text(encoding="utf-8"))
 
 
+@pytest.fixture(autouse=True)
+def isolate_call_storage(tmp_path, monkeypatch):
+    """Les tests n'écrivent jamais dans l'historique utilisé manuellement."""
+    monkeypatch.setenv("API_CALLS_DB_PATH", str(tmp_path / "api_calls.sqlite3"))
+
+
 @pytest.fixture
 def model_factory(tmp_path, schema_specs):
     def factory(score=0.25, classes=(0, 1), specs=None):
@@ -107,6 +113,8 @@ def serve_api(tmp_path_factory):
         # Le programme appelant ne dépend jamais du CSV de démonstration.
         with pytest.MonkeyPatch.context() as patch:
             patch.setattr(main, "DEMO_CSV", tmp_path_factory.mktemp("api") / "absent.csv")
+            db_path = tmp_path_factory.mktemp("storage") / "api_calls.sqlite3"
+            patch.setenv("API_CALLS_DB_PATH", str(db_path))
             demo = main.create_demo(model)
         with socket.socket() as temporary_socket:
             temporary_socket.bind(("127.0.0.1", 0))
@@ -119,11 +127,13 @@ def serve_api(tmp_path_factory):
                 run_history=False, footer_links=["api"],
             )
             client = Client(url, verbose=False, httpx_kwargs={"trust_env": False})
-            yield SimpleNamespace(client=client, demo=demo, url=url)
+            yield SimpleNamespace(client=client, demo=demo, url=url, db_path=db_path)
         finally:
-            if client is not None:
-                client.close()
-            demo.close(verbose=False)
+            try:
+                if client is not None:
+                    client.close()
+            finally:
+                demo.close(verbose=False)
     return serve
 
 
@@ -148,7 +158,7 @@ def api(api_server):
 def pytest_terminal_summary(terminalreporter):
     """Affiche le nombre de scénarios réussis, échoués ou ignorés par ID."""
     terminalreporter.section("Résultats par ID du plan")
-    for number in range(1, 11):
+    for number in range(1, 14):
         test_id = f"T{number:02}"
         counts = {}
         for outcome in ("passed", "failed", "error", "skipped"):

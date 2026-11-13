@@ -106,19 +106,20 @@ NON_NEGATIVE_CASES = [
 
 
 @pytest.mark.parametrize("field", NON_NEGATIVE_CASES)
-def test_T04_non_negative_fields(scorer, client_data, schema_specs, field):
+@pytest.mark.parametrize("value,accepted", [(0, True), (7, True), (-1, False)])
+def test_T04_non_negative_fields(scorer, client_data, schema_specs, field, value, accepted):
     spec = next(spec for spec in schema_specs if spec["name"] == field)
     is_integer = spec["type"] in {"integer", "long"}
-    for value in (0 if is_integer else 0.0, 7 if is_integer else 7.0):
-        client_data[field] = value
+    value = value if is_integer else float(value)
+    client_data[field] = value
+    if accepted:
         scorer.model.predict(client_data)
         frame = scorer.pipeline.predict_proba.call_args.args[0]
         assert frame.at[0, field] == value
-    scorer.pipeline.predict_proba.reset_mock()
-    client_data[field] = -1 if is_integer else -1.0
-    with pytest.raises(InputValidationError, match=f"{field}.*supérieure ou égale à 0"):
-        scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    else:
+        with pytest.raises(InputValidationError, match=f"{field}.*supérieure ou égale à 0"):
+            scorer.model.predict(client_data)
+        scorer.pipeline.predict_proba.assert_not_called()
 
 
 @pytest.mark.parametrize("value,accepted", [(-12994, True), (-1, True), (0, False), (12994, False)])
@@ -147,17 +148,21 @@ def test_T04_application_hour(scorer, client_data, value, accepted):
     "DAYS_EMPLOYED", "DAYS_REGISTRATION", "DAYS_ID_PUBLISH",
     "DAYS_LAST_PHONE_CHANGE", "BUREAU_DAYS_CREDIT_MAX", "PREV_DAYS_DECISION_MAX",
 ])
-def test_T04_past_relative_dates(scorer, client_data, schema_specs, field):
+@pytest.mark.parametrize("value,accepted", [
+    (-2055, True), (0, True), (None, True), (1, False),
+])
+def test_T04_past_relative_dates(scorer, client_data, schema_specs, field, value, accepted):
     spec = next(spec for spec in schema_specs if spec["name"] == field)
     integer = spec["type"] == "long"
-    for value in (-2055 if integer else -2055.0, 0 if integer else 0.0, None):
-        client_data[field] = value
+    if value is not None and not integer:
+        value = float(value)
+    client_data[field] = value
+    if accepted:
         scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.reset_mock()
-    client_data[field] = 1 if integer else 1.0
-    with pytest.raises(InputValidationError, match=f"{field}.*<= 0"):
-        scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    else:
+        with pytest.raises(InputValidationError, match=f"{field}.*<= 0"):
+            scorer.model.predict(client_data)
+        scorer.pipeline.predict_proba.assert_not_called()
 
 
 def test_T04_employed_raw_sentinel_is_not_processed(scorer, client_data):
@@ -176,13 +181,15 @@ def test_T04_employed_raw_sentinel_is_not_processed(scorer, client_data):
     "PREV_INSTAL_LATE_PAYMENT_RATIO_MEAN", "PREV_INSTAL_UNDERPAYMENT_RATIO_MEAN",
     "PREV_CC_HISTORY_RATIO",
 ])
-def test_T04_proportion_boundaries(scorer, client_data, field):
-    for value in (0.0, 0.5, 1.0, None):
-        client_data[field] = value
+@pytest.mark.parametrize("value,accepted", [
+    (0.0, True), (0.5, True), (1.0, True), (None, True),
+    (-0.1, False), (1.1, False),
+])
+def test_T04_proportion_boundaries(scorer, client_data, field, value, accepted):
+    client_data[field] = value
+    if accepted:
         scorer.model.predict(client_data)
-    for value in (-0.1, 1.1):
-        scorer.pipeline.predict_proba.reset_mock()
-        client_data[field] = value
+    else:
         with pytest.raises(InputValidationError, match=f"{field}.*0 et 1"):
             scorer.model.predict(client_data)
         scorer.pipeline.predict_proba.assert_not_called()

@@ -12,7 +12,7 @@ env:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GRADIO_ANALYTICS_ENABLED: "False"
@@ -20,11 +20,11 @@ jobs:
       MLFLOW_DISABLE_AGENT_HINT: "1"
       MPLBACKEND: Agg
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - name: Installer les dépendances du projet
         run: |
           uv venv --python 3.13 .venv
@@ -55,19 +55,19 @@ jobs:
 
   build:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
       image_id: ${{ steps.image.outputs.id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Construire et exporter l'image testée
         id: image
         run: |
           docker build --tag "$IMAGE_TAG" .
           echo "id=$(docker image inspect --format '{{.Id}}' "$IMAGE_TAG")" >> "$GITHUB_OUTPUT"
           docker save --output "$RUNNER_TEMP/scoring-image.tar" "$IMAGE_TAG"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: scoring-image-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/scoring-image.tar
@@ -77,14 +77,14 @@ jobs:
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: scoring-image-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/scoring-image
@@ -102,6 +102,8 @@ jobs:
         run: docker run --detach --name credit-scoring-ci --publish 127.0.0.1:7860:7860 "$IMAGE_TAG"
       - name: Attendre puis vérifier schema et predict avec le vrai modèle
         run: python tests/verifier_api_deployee.py --url http://127.0.0.1:7860 --timeout 120
+      - name: T13 - Vérifier la conservation SQLite avec la même image et un volume
+        run: python tests/verifier_persistance_docker.py --image "$IMAGE_TAG"
       - name: Journaux du conteneur en cas d'échec
         if: ${{ failure() }}
         run: |

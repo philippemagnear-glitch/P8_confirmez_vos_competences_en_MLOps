@@ -39,6 +39,7 @@ Thumbs.db
 # ---------- Données locales ----------
 /data/raw/
 /data/processed/
+/data/api_calls.sqlite3*
 
 # ---------- MLflow ----------
 /mlflow.db

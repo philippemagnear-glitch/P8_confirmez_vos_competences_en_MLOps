@@ -25,7 +25,7 @@ l'application ne réalise ni entraînement, ni jointures, ni encodage des donné
 - Le score doit être fini et compris entre 0 et 1. La classe de défaut est `1` ;
   `prediction = 1` lorsque `score >= threshold`, avec un seuil actuel de **0.5**.
 
-Les règles de valeur figurent dans `app/prediction.py` et le [plan T01–T10](docs/plan_tests_api_scoring.md).
+Les règles de valeur figurent dans `app/prediction.py` et le [plan T01–T13](docs/plan_tests_api_scoring.md).
 Le revenu nul reste accepté faute de règle contraire établie. Les soldes signés sont conservés ;
 un rapport de montants n'est pas nécessairement une proportion limitée à 1.
 
@@ -35,6 +35,7 @@ un rapport de montants n'est pas nécessairement une proportion limitée à 1.
 |---|---|
 | `app/main.py` | Construit l'interface, expose les endpoints et traduit les erreurs pour l'appelant. |
 | `app/prediction.py` | Charge et contrôle l'artefact, valide les entrées et calcule le score. |
+| `app/storage.py` | Enregistre les appels dans SQLite sans bloquer leur réponse en cas de panne de stockage. |
 | `app/artifacts/credit_scoring_lightgbm/4/` | Pipeline `model.pkl`, signature `MLmodel`, provenance et fichiers MLflow associés. |
 | `tests/conftest.py` | Préparations partagées par pytest : client JSON, modèle simulé et serveur Gradio temporaire. |
 | `tests/test_prediction.py` | Tests unitaires de validation, ordre, seuil, score et réutilisation du modèle. |
@@ -106,7 +107,7 @@ Une commande lance les tests unitaires, les tests d'intégration et la couvertur
 .\.venv\Scripts\python.exe -m pytest
 ```
 
-Pytest affiche les résultats par ID T01–T10. Pytest-cov affiche la couverture et produit
+Pytest affiche les résultats par ID T01–T13. Pytest-cov affiche la couverture et produit
 `tests/reports/coverage.json` pour `app/main.py` et `app/prediction.py`, avec lignes et branches.
 La couverture indique le code exécuté ; elle ne garantit pas à elle seule la qualité des tests.
 Les tests unitaires simulent le calcul, tout en utilisant la vraie validation des données.
@@ -154,6 +155,47 @@ Une image construite peut contenir une application inutilisable : le contrôle H
 L'image n'est pas publiée dans un registre ; aucun secret n'est nécessaire pour l'artefact actuellement versionné.
 Après un push, consulter l'onglet **Actions** du dépôt pour constater le résultat des trois jobs.
 
+## Historique SQLite des appels
+
+Les fonctions `/predict` et `/schema` écrivent dans la table `api_calls` : identifiant UUID,
+date de début UTC, opération, statut (`success`, `rejected`, `error`) et durée en millisecondes.
+La durée mesure le traitement applicatif, hors attente Gradio et hors écriture SQLite.
+Pour une prédiction réussie, les entrées JSON (avec leurs `null`), le score, la classe, le seuil
+et la version sont conservés. Ce stockage complet est prévu pour les **données synthétiques du TP** ;
+ne pas utiliser de données personnelles réelles sans définir une politique de protection et de rétention.
+Un rejet garde son motif sans entrée ni score ; une panne garde un motif générique et son type,
+sans recopier le texte potentiellement sensible de l'exception. Un échec SQLite est signalé dans
+les logs du serveur et ne modifie pas la réponse d'origine. Les erreurs HTTP rejetées par Gradio
+avant l'entrée dans ces fonctions ne sont pas enregistrées. L'interface utilise la même fonction de prédiction.
+
+Le chemin par défaut est `data/api_calls.sqlite3` en local, ignoré par Git.
+Configurer `API_CALLS_DB_PATH` avant de démarrer l'application pour utiliser un autre fichier.
+Dans Docker, la valeur par défaut est `/app/data/api_calls.sqlite3`. Monter un volume pour
+conserver la base après remplacement du conteneur (un volume déjà existant doit être accessible à l'UID 10001) :
+
+```powershell
+docker run --detach --name scoring-stockage --publish 127.0.0.1:17860:7860 --mount type=volume,source=scoring-history,target=/app/data credit-scoring:local
+# Consulter l'historique du conteneur, sans installer de client SQLite :
+docker exec scoring-stockage python -m sqlite3 /app/data/api_calls.sqlite3 "SELECT request_id, timestamp_utc, operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
+# Consulter la base locale après un appel à l'API lancée hors Docker :
+python -m sqlite3 data/api_calls.sqlite3 "SELECT * FROM api_calls ORDER BY rowid DESC LIMIT 1;"
+```
+
+T11 vérifie l'enregistrement complet, T12 le rejet sans requête et la tolérance aux erreurs SQLite.
+T13 remplace deux conteneurs successifs avec le même volume et compare leur historique.
+Il supprime uniquement ses propres conteneurs et volume de test, pas `scoring-history`.
+Pour inclure T13 dans pytest après construction de l'image :
+
+```powershell
+$env:SCORING_DOCKER_IMAGE = 'credit-scoring:local'
+python -m pytest
+Remove-Item Env:SCORING_DOCKER_IMAGE
+```
+
+Sans cette variable, pytest signale explicitement T13 comme ignoré ; le job `deploy` exécute
+obligatoirement ce contrôle sur l'image de `build`, via `tests/verifier_persistance_docker.py`.
+Le volume du runner reste temporaire : sa persistance entre deux conteneurs ne constitue pas
+un stockage durable entre deux exécutions de GitHub Actions. Aucune analyse de dérive n'est encore effectuée.
 ## Changer de modèle : mises à jour manuelles
 
 Enregistrer une nouvelle version dans MLflow ne change pas automatiquement le modèle de l'API.
@@ -178,4 +220,4 @@ Enregistrer une nouvelle version dans MLflow ne change pas automatiquement le mo
 T08 mesure une non-régression technique, pas la qualité prédictive : évaluer le nouveau modèle sur des données
 appropriées avant son adoption. Ne jamais changer la référence simplement pour faire passer un test.
 Aucun notebook ni générateur de référence n'est fourni ; cette préparation reste manuelle.
-Le stockage des appels, le monitoring, l'analyse de dérive et son tableau de bord restent à réaliser.
+Le stockage des appels est disponible ; l'analyse de dérive et le tableau de bord restent à réaliser.

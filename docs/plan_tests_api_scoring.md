@@ -16,6 +16,9 @@ L’API Gradio reçoit une ligne préparée contenant les **310 clés** attendue
 | **T08** | **Vérifier une prédiction avec le vrai modèle.** S'assurer que l'API utilise le modèle prévu et retourne le résultat attendu. | Envoyer les données du client fictif de `tests/fixtures/client_valid.json`. Avec le modèle version `4`, l'API doit retourner un score proche de `0.9206103043784433` (écart maximal : `0.000001`), la classe `1` et le seuil `0.5`. Le test échoue si l'appel ne fonctionne pas, si le modèle ou le fichier client manque, ou si le résultat diffère de la référence enregistrée dans `t08_reference.json`. Le même contrôle est réalisé dans Docker. |
 | **T09** | **Erreurs reçues par le programme tiers · Intégration.** Permettre à l’appelant de distinguer une donnée à corriger d’une panne du calcul. | Une clé absente déclenche un message qui la nomme. Une panne simulée du modèle sur une requête valide, par exemple une `ValueError` interne, déclenche un message public générique. Les journaux signalent l’échec et préservent les données sensibles de la requête. |
 | **T10** | **Schéma fourni par `/schema` · Intégration.** Donner au programme tiers les informations nécessaires pour préparer sa requête. | L’endpoint retourne les 310 champs distincts, tous obligatoires, avec leurs types. Il indique notamment que `OWN_CAR_AGE` accepte `null` et que `OWN_CAR_AGE_ANOMALOUS` attend un booléen et refuse `null`. Ces indications correspondent à T01 et T02. |
+| **T11** | **Enregistrement d'une prédiction réussie.** Vérifier qu'on peut retrouver les données envoyées et le résultat obtenu. | Un appel valide à `/predict` crée une ligne SQLite avec un identifiant unique, la date UTC, le statut de réussite, les entrées synthétiques (avec leurs `null` et leurs zéros), le score, la classe, le seuil, la version du modèle et la durée en millisecondes. |
+| **T12** | **Enregistrement d'une requête rejetée.** Vérifier que les erreurs de validation sont traçables sans conserver les données rejetées. | Un appel où `OWN_CAR_AGE` manque crée une ligne avec le statut de rejet, le motif, la date UTC et la durée. La ligne ne contient ni score ni copie de la requête. Une panne conserve seulement un motif générique et son type ; un échec d'écriture SQLite est journalisé sans modifier la réponse de l'API. |
+| **T13** | **Conservation de l'historique après remplacement du conteneur.** Détecter une base écrite dans le conteneur au lieu du volume Docker. | Après avoir supprimé le premier conteneur et démarré un nouveau conteneur de la même image avec le même volume, on retrouve exactement les appels enregistrés avant le remplacement. Le contrôle utilise le vrai modèle et le JSON synthétique de T08. |
 
 ## Règles de valeur pour T04
 
@@ -36,3 +39,13 @@ Les règles portent sur les valeurs numériques renseignées. Toutes les clés s
 - Mesurer les lignes et les branches couvertes dans `app/prediction.py` et le code API de `app/main.py`. Donner les résultats par fichier et relever les chemins critiques non exercés. Le taux de couverture complète les assertions du tableau.
 - Faire tourner les tests unitaires et les appels d’intégration avec un modèle simulé, sauf T08 qui utilise obligatoirement le vrai pipeline v4 et le JSON synthétique de référence. Une absence ou une empreinte incompatible fait échouer la CI avec un message explicite. Le job `deploy` vérifie `/schema` puis `/predict` avec cette même référence et le même code, dans l'image produite par `build`, puis arrête le conteneur même en cas d'échec.
 - Utiliser `pytest-cov` pour le rapport de couverture et respecter la gestion de dépendances du dépôt. Si le projet utilise `uv` et possède un `uv.lock`, installer les dépendances à partir de ce verrou.
+
+## Exécution du stockage T11–T13
+
+`python -m pytest` couvre T11 et T12 dans des bases temporaires isolées.
+T13 est signalé comme ignoré si aucune image n'est fournie par `SCORING_DOCKER_IMAGE`.
+Après construction de l'image, définir cette variable puis relancer pytest pour inclure T13.
+Le job `deploy` exécute obligatoirement `tests/verifier_persistance_docker.py` sur l'image
+produite par `build` ; l'échec fait échouer le job. Ce script crée et supprime uniquement
+ses propres conteneurs et son volume temporaire. La durée enregistrée mesure le traitement
+applicatif, hors attente dans la file Gradio et hors écriture SQLite.

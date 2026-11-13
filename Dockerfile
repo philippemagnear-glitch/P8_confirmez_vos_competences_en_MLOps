@@ -8,7 +8,8 @@ ENV PYTHONUNBUFFERED=1 \
     GRADIO_SERVER_PORT=7860 \
     GRADIO_ANALYTICS_ENABLED=False \
     HF_HUB_OFFLINE=1 \
-    MLFLOW_DISABLE_AGENT_HINT=1
+    MLFLOW_DISABLE_AGENT_HINT=1 \
+    API_CALLS_DB_PATH=/app/data/api_calls.sqlite3
 
 WORKDIR /app
 
@@ -20,7 +21,9 @@ RUN apt-get update \
 COPY requirements.txt ./
 RUN uv pip install --system --no-cache -r requirements.txt
 
-RUN useradd --create-home --uid 10001 scorer
+RUN useradd --create-home --uid 10001 scorer \
+    && mkdir -p /app/data \
+    && chown scorer:scorer /app/data
 COPY --chown=scorer:scorer app/ ./app/
 USER scorer
 

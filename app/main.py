@@ -4,6 +4,8 @@ import json
 import logging
 import os
 from pathlib import Path
+from datetime import datetime, timezone
+from time import perf_counter
 
 # Désactive la télémétrie Gradio avant son import.
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
@@ -12,6 +14,7 @@ import gradio as gr
 import pandas as pd
 
 from app.prediction import CreditScoringModel, InputValidationError
+from app.storage import ApiCallStore
 
 
 LOGGER = logging.getLogger(__name__)
@@ -45,29 +48,48 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
     """Charge une fois le modèle et construit l'interface et ses points d'accès."""
     if model is None:
         model = CreditScoringModel()
+    call_store = ApiCallStore()
     try:
         demo_clients = load_demo_clients(model)
     except (OSError, ValueError) as error:
         LOGGER.warning("Échantillon CSV indisponible : %s", error)
         demo_clients = {}
 
-    def predict(client: dict) -> dict:
-        """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""
+    def run_operation(operation, action, client=None):
+        """Mesure le traitement et trace son issue, même si le calcul échoue."""
+        started = perf_counter()
+        started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+        status, result, reason = "error", None, None
         try:
-            return model.predict(client)
+            result = action()
+            status = "success"
+            return result
         except InputValidationError as error:
+            status, reason = "rejected", str(error)
             raise gr.Error(str(error), print_exception=False) from None
         except Exception as error:
             # Le texte de l'exception peut contenir des données client.
-            LOGGER.error("Échec de la prédiction (%s).", type(error).__name__)
-            raise gr.Error(
-                "La prédiction a échoué. Consulter les logs du serveur.",
-                print_exception=False,
-            ) from None
+            message = (
+                "La prédiction a échoué. Consulter les logs du serveur."
+                if operation == "predict" else
+                "La lecture du schéma a échoué. Consulter les logs du serveur."
+            )
+            reason = f"{message} ({type(error).__name__})"
+            LOGGER.error("Échec de la %s (%s).",
+                         "prédiction" if operation == "predict" else "lecture du schéma",
+                         type(error).__name__)
+            raise gr.Error(message, print_exception=False) from None
+        finally:
+            call_store.record(operation=operation, status=status, started_at=started_at,
+                              started=started, inputs=client, result=result, reason=reason)
+
+    def predict(client: dict) -> dict:
+        """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""
+        return run_operation("predict", lambda: model.predict(client), client)
 
     def get_schema() -> dict:
         """Retourne les variables attendues, leurs types et leur caractère obligatoire."""
-        return model.schema()
+        return run_operation("schema", model.schema)
 
     def select_client(client_id: str) -> tuple[str, None]:
         if client_id not in demo_clients:
