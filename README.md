@@ -1,79 +1,87 @@
 # API de scoring crédit — Projet 8 MLOps
 
-API et interface Gradio exposant le pipeline LightGBM `credit_scoring_lightgbm`, version **4**.
-Pour un client déjà préparé, elles retournent une probabilité de défaut et une classe.
-Stack : Python 3.13, pandas, scikit-learn, LightGBM, MLflow, Gradio, pytest et Docker.
-Les versions des dépendances directes sont fixées dans `requirements.txt`.
+Application Gradio exposant le pipeline LightGBM **`credit_scoring_lightgbm`, version 4**,
+entraîné lors d'un précédent projet OpenClassrooms. À partir des données préparées d'un client,
+elle retourne une probabilité de défaut et une classe, puis enregistre l'appel dans SQLite.
 
-## Fonctionnement et contrat d'entrée
+**Disponible :** prédiction, schéma d'entrée, historique SQLite, simulation d'appels,
+tests automatisés, image Docker et pipeline `test → build → deploy`.
+L'analyse de dérive, le tableau de bord et l'hébergement permanent restent à réaliser.
+Stack : Python 3.13, Gradio, pandas, scikit-learn, LightGBM, MLflow, pytest et Docker.
+Versions des dépendances directes : [requirements.txt](requirements.txt).
 
-Le modèle est chargé au démarrage **une seule fois par processus**, puis réutilisé.
-Les appels de prédiction de l'interface et de l'API partagent une file avec un calcul à la fois.
-Plusieurs processus auraient chacun leur propre modèle en mémoire.
-Les artefacts locaux dans `app/artifacts/credit_scoring_lightgbm/4/` rendent l'application
-indépendante d'un serveur ou d'une base MLflow. Le pipeline contient l'imputation et LightGBM ;
-l'application ne réalise ni entraînement, ni jointures, ni encodage des données brutes.
+## Fonctionnement et organisation
 
-- `/predict` attend un objet JSON représentant **un seul client avec les 310 clés obligatoires**.
-- `/schema` expose les noms, types, ordre et possibilité de `null`, depuis `MLmodel`.
-- L'API impose toutes les clés, même celles déclarées facultatives dans la signature MLflow v4.
-- Une clé absente est nommée dans l'erreur avant l'appel au modèle ; les clés inconnues sont refusées.
-- `TARGET` et `SK_ID_CURR` ne sont pas des entrées du modèle.
-- Un `null` numérique explicite passe par l'imputation ; **zéro conserve sa valeur**.
-- Les booléens exigent `true` ou `false` et refusent `null` ; les chaînes numériques sont refusées.
-- L'ordre reçu peut varier : les colonnes sont réordonnées selon la signature avant le calcul.
-- Le score doit être fini et compris entre 0 et 1. La classe de défaut est `1` ;
-  `prediction = 1` lorsque `score >= threshold`, avec un seuil actuel de **0.5**.
+```text
+Programme appelant ou interface → Gradio → validation → pipeline entraîné → score et classe
+                                            └─ réussite, rejet ou panne → historique SQLite
+```
 
-Les règles de valeur figurent dans `app/prediction.py` et le [plan T01–T13](docs/plan_tests_api_scoring.md).
-Le revenu nul reste accepté faute de règle contraire établie. Les soldes signés sont conservés ;
-un rapport de montants n'est pas nécessairement une proportion limitée à 1.
-
-## Rôle des fichiers
+Le pipeline contient l'imputation et LightGBM ; il est chargé **une fois par processus**, puis partagé.
+Les prédictions de l'interface et de l'API passent une à une dans la même file. Les artefacts sont locaux,
+sans serveur MLflow. Jointures, encodage des données brutes et entraînement sont réalisés en amont.
 
 | Fichier ou dossier | Rôle |
 |---|---|
-| `app/main.py` | Construit l'interface, expose les endpoints et traduit les erreurs pour l'appelant. |
-| `app/prediction.py` | Charge et contrôle l'artefact, valide les entrées et calcule le score. |
-| `app/storage.py` | Enregistre les appels dans SQLite sans bloquer leur réponse en cas de panne de stockage. |
-| `app/artifacts/credit_scoring_lightgbm/4/` | Pipeline `model.pkl`, signature `MLmodel`, provenance et fichiers MLflow associés. |
-| `tests/conftest.py` | Préparations partagées par pytest : client JSON, modèle simulé et serveur Gradio temporaire. |
-| `tests/test_prediction.py` | Tests unitaires de validation, ordre, seuil, score et réutilisation du modèle. |
-| `tests/test_api.py` | Tests des callbacks et appels HTTP Gradio, dont T08 avec le vrai modèle. |
-| `tests/verifier_api_deployee.py` | Attend une API démarrée, appelle `/schema` puis `/predict` et vérifie la référence. |
-| `tests/test_verifier_api_deployee.py` | Vérifie que ce contrôleur refuse les références manquantes et les mauvais résultats. |
-| `tests/fixtures/client_valid.json` | Entrée complète d'un **client fictif**, indépendante du CSV de démonstration. |
-| `tests/fixtures/t08_reference.json` | Résultat attendu pour ce client avec le vrai modèle, identifiants et empreintes. |
-| `pytest.ini` | Configuration unique des tests et de la couverture des lignes et branches. |
-| `tests/reports/` | Rapports générés, ignorés par Git ; cache dans `tests/.pytest_cache/`, temporaires dans `tests/.tmp/`. |
-| `Dockerfile`, `.dockerignore` | Construction de l'image avec l'application et ses artefacts, sans datasets ni secrets. |
-| `.github/workflows/tests-api.yml` | Automatisation `test → build → deploy` sur GitHub Actions. |
+| `app/main.py` | Interface Gradio, endpoints, traduction des erreurs et déclenchement du stockage. |
+| `app/prediction.py` | Chargement du modèle, contrôle des entrées et calcul de la prédiction. |
+| `app/storage.py` | Écriture de l'historique dans SQLite. |
+| `app/artifacts/credit_scoring_lightgbm/4/` | Pipeline `model.pkl`, signature `MLmodel`, provenance et fichiers MLflow. |
+| `scripts/simuler_appels_api.py` | Envoi de clients tirés au hasard dans le CSV processed. |
+| `tests/conftest.py` | Fixtures pytest : données, modèles simulés, bases isolées et serveurs temporaires. |
+| `tests/test_prediction.py`, `tests/test_api.py` | Validation, seuil, réutilisation du modèle, interface et appels Gradio. |
+| `tests/test_storage.py` | Enregistrement SQLite, erreurs de stockage et persistance Docker. |
+| `tests/verifier_api_deployee.py` | Contrôle HTTP d'une API démarrée, partagé par T08 et le job `deploy`. |
+| `tests/test_verifier_api_deployee.py` | Vérifie que ce contrôleur refuse les références et résultats incorrects. |
+| `tests/verifier_persistance_docker.py` | Contrôle T13 avec deux conteneurs successifs et un même volume. |
+| `tests/fixtures/` | JSON complet du client fictif et résultat attendu pour T08. |
+| `pytest.ini` | Configuration commune de pytest et de la couverture. |
+| `Dockerfile`, `.dockerignore` | Construction de l'image ; seuls l'application et les fichiers nécessaires y entrent. |
+| `.github/workflows/tests-api.yml` | Tests, construction et validation du conteneur sur GitHub Actions. |
 
-Les données `data/raw/` et `data/processed/` et l'environnement local sont ignorés par Git.
-Les anciennes expérimentations sont consultables dans l'historique Git.
+Datasets locaux et environnement Python sont ignorés par Git ; les anciennes expériences restent dans l'historique.
+Le [plan T01–T13](docs/plan_tests_api_scoring.md) détaille les scénarios.
 
-## Installation et lancement local
+## Installation et démarrage local
 
-Depuis la racine du dépôt, sous PowerShell, avec Python 3.13 et `uv` :
+Prérequis : Python 3.13 et `uv`. Commandes PowerShell depuis la racine du dépôt :
 
 ```powershell
 # Créer l'environnement uniquement s'il n'existe pas déjà.
 uv venv --python 3.13 .venv
 uv pip install --python .venv\Scripts\python.exe -r requirements.txt
-.\.venv\Scripts\python.exe -m app.main
+.\.venv\Scripts\Activate.ps1
+python -m app.main
 ```
 
-Ouvrir `http://127.0.0.1:7860`. Arrêter avec `Ctrl+C` ; redémarrer après une modification.
-`GRADIO_SERVER_NAME` et `GRADIO_SERVER_PORT` permettent de modifier l'adresse d'écoute.
-La liste de démonstration charge au maximum 50 lignes de
-`data/processed/application_test_final_encoded.csv`. Ce CSV est facultatif : s'il manque
-ou est incompatible, la saisie JSON et l'API restent disponibles. Les tests fabriquent leurs
-propres CSV quand nécessaire ; ils ne dépendent pas de ce fichier local.
+Ouvrir **http://127.0.0.1:7860** ; arrêter avec `Ctrl+C`. Les commandes suivantes supposent `.venv` activé à la racine.
 
-## Use via API et erreurs
+| Variable d'environnement | Valeur par défaut hors Docker | Usage |
+|---|---|---|
+| `GRADIO_SERVER_NAME` | `127.0.0.1` | Adresse d'écoute. |
+| `GRADIO_SERVER_PORT` | `7860` | Port d'écoute. |
+| `API_CALLS_DB_PATH` | `<racine>/data/api_calls.sqlite3` | Fichier SQLite ; à définir avant le démarrage. |
 
-Le lien **Use via API** décrit `/predict` et `/schema`. Il s'agit du protocole Gradio,
-pas d'une route REST classique `POST /predict`. Exemple depuis un programme tiers :
+L'interface accepte un JSON ou propose jusqu'à 50 clients du CSV facultatif
+`data/processed/application_test_final_encoded.csv`. S'il manque ou est incompatible,
+la saisie et les appels API restent disponibles. Les données RAW ne sont pas modifiées.
+
+## Contrat d'entrée, appels et erreurs
+
+- `/predict` reçoit un objet JSON représentant **un client avec les 310 clés obligatoires**.
+- `/schema` expose leurs noms, types, ordre et possibilité de `null`, d'après `MLmodel`.
+- L'API exige toutes les clés, même celles déclarées facultatives dans la signature MLflow v4.
+- Une clé absente est nommée dans l'erreur avant le calcul ; les clés inconnues sont refusées,
+  notamment `TARGET` et `SK_ID_CURR`. Les colonnes sont réordonnées selon le modèle.
+- Un `null` numérique explicite est imputé ; **zéro reste zéro**. Les booléens exigent
+  `true` ou `false` et refusent `null`. Les chaînes numériques et nombres non finis sont refusés.
+- Le score appartient à `[0, 1]`. La classe de défaut est `1` ; elle est prédite lorsque
+  `score >= threshold`, avec un seuil actuel de **0.5**.
+
+Les règles de valeur figurent dans `app/prediction.py` et le plan de tests. Le revenu nul reste accepté ;
+les soldes signés sont conservés et les rapports de montants ne sont pas systématiquement limités à 1.
+
+Le lien **Use via API** de Gradio décrit les deux fonctions. Exemple depuis un programme tiers :
 
 ```python
 import json
@@ -82,109 +90,115 @@ from gradio_client import Client
 from gradio_client.exceptions import AppError
 
 client = Client("http://127.0.0.1:7860")
-print(client.predict(api_name="/schema"))
-payload = json.loads(Path("tests/fixtures/client_valid.json").read_text(encoding="utf-8"))
 try:
+    schema = client.predict(api_name="/schema")
+    payload = json.loads(Path("tests/fixtures/client_valid.json").read_text(encoding="utf-8"))
     print(client.predict(client=payload, api_name="/predict"))
 except AppError as error:
     print(error)
+finally:
+    client.close()
 ```
 
-Le résultat contient `score`, `prediction`, `threshold`, `model_name` et `model_version`.
-Une donnée invalide déclenche `AppError` avec une explication, nommant les colonnes concernées
-lorsque possible. Une panne du calcul déclenche un message générique :
-« La prédiction a échoué. Consulter les logs du serveur. ». Aucun nouveau score n'est retourné ;
-le journal d'erreur du calcul indique le type d'exception sans les valeurs du client.
-En HTTP brut, le POST `/gradio_api/call/predict` renvoie un `event_id` ; le GET
-`/gradio_api/call/predict/{event_id}` transmet un événement SSE `complete` ou `error`.
-Le succès du POST seul ne garantit donc pas celui du calcul.
+La réponse contient `score`, `prediction`, `threshold`, `model_name` et `model_version`.
+Une entrée invalide déclenche `AppError` avec son motif. Une panne du calcul renvoie
+« La prédiction a échoué. Consulter les logs du serveur. », sans nouveau score ;
+le programme appelant doit aussi gérer les erreurs réseau.
+En HTTP brut, utiliser le protocole Gradio : POST `/gradio_api/call/predict`, puis GET
+`/gradio_api/call/predict/{event_id}`. Le flux SSE contient `complete` ou `error` ; le succès
+du POST seul ne garantit pas celui du calcul. Ce n'est pas une route REST `POST /predict`.
 
-## Tests et référence T08
+## Historique SQLite
 
-Une commande lance les tests unitaires, les tests d'intégration et la couverture, en local comme en CI :
+La base et la table `api_calls` sont créées à la première écriture réussie. Chaque appel traité conserve
+`request_id` (UUID), `timestamp_utc` (début UTC), `operation`, `status` et `duration_ms`.
+La durée exclut l'attente dans la file et l'écriture SQLite.
+
+| Opération et statut | Données supplémentaires enregistrées |
+|---|---|
+| `predict` / `success` | `input_json` original avec ses `null`, `score`, `prediction`, `threshold`, `model_version`. |
+| `schema` / `success` | Aucun contenu client ni résultat de prédiction. |
+| `rejected` | `reason` indique le motif ; aucune copie de l'entrée ni score. |
+| `error` | `reason` contient un message générique et le type d'exception, sans son texte potentiellement sensible. |
+
+Une connexion est ouverte et fermée par écriture. L'enregistrement est synchrone ; une erreur
+SQLite est journalisée sans changer la réponse initiale. **Une prédiction réussie ne garantit
+donc pas son enregistrement** : consulter les logs du serveur en cas de ligne manquante.
+Le stockage complet s'applique à toute prédiction acceptée ; son usage est prévu pour le TP,
+sans filtre distinguant un client fictif d'un client réel. Bases et entrées ne doivent pas être versionnées.
+Aucune purge automatique n'est prévue.
+
+**Cas non enregistrés :** le texte JSON mal formé dans l'interface est rejeté avant `predict` ;
+il en va de même des requêtes refusées par Gradio avant l'entrée dans les fonctions applicatives.
+Un JSON valide auquel manque une clé entre dans `predict` et produit une ligne `rejected`.
+Après un appel, consulter la base locale avec :
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest
+python -m sqlite3 data/api_calls.sqlite3 "SELECT request_id, timestamp_utc, operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
 ```
 
-Pytest affiche les résultats par ID T01–T13. Pytest-cov affiche la couverture et produit
-`tests/reports/coverage.json` pour `app/main.py` et `app/prediction.py`, avec lignes et branches.
-La couverture indique le code exécuté ; elle ne garantit pas à elle seule la qualité des tests.
-Les tests unitaires simulent le calcul, tout en utilisant la vraie validation des données.
-Le schéma est lu directement dans `MLmodel`, sans copie JSON supplémentaire.
+## Docker et persistance
 
-**T08 envoie le client fictif complet à une vraie API avec le vrai pipeline v4.**
-Son résultat attendu est **0.9206103043784433**, classe **1**, seuil **0.5**, avec une tolérance
-absolue de **0.000001**. Cette référence synthétique a remplacé la ligne historique absente
-qui produisait `0.17086662346702958` : ces deux scores correspondent à des entrées différentes.
-Le résultat attendu n'est pas simulé et n'est jamais recalculé automatiquement pendant les tests.
-L'absence du modèle ou du client, une empreinte incompatible ou un résultat différent fait échouer le contrôle.
-T08 et Docker utilisent le même JSON et les mêmes fonctions de `verifier_api_deployee.py`.
-Ce script utilise seulement la bibliothèque standard Python et retourne un code d'échec en cas de problème.
-Il ne démarre pas le serveur, ne l'arrête pas et ne modifie pas la référence.
-
-## Docker et pipeline CI/CD
-
-Avec un moteur Docker Linux démarré, depuis la racine (port hôte 17860 pour éviter le serveur local) :
+Prérequis : moteur Docker Linux démarré. Construire l'image puis monter un volume nommé :
 
 ```powershell
 docker build --tag credit-scoring:local .
-if ($LASTEXITCODE -ne 0) { throw 'Construction Docker echouee' }
-docker run --detach --name scoring --publish 127.0.0.1:17860:7860 credit-scoring:local
-if ($LASTEXITCODE -ne 0) { throw 'Demarrage Docker echoue' }
-try {
-    .\.venv\Scripts\python.exe tests/verifier_api_deployee.py --url http://127.0.0.1:17860 --timeout 120
-    if ($LASTEXITCODE -ne 0) { docker logs scoring; throw 'Verification API echouee' }
-} finally {
-    docker rm --force scoring
-}
+# Exécuter après une construction réussie ; le port 17860 évite le serveur local.
+docker run --detach --name scoring --publish 127.0.0.1:17860:7860 --mount type=volume,source=scoring-history,target=/app/data credit-scoring:local
+python tests/verifier_api_deployee.py --url http://127.0.0.1:17860 --timeout 120
+docker exec scoring python -m sqlite3 /app/data/api_calls.sqlite3 "SELECT operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
 ```
 
-L'image démarre avec `python -m app.main`, un utilisateur non root et une écoute interne
-sur `0.0.0.0:7860`. Le port hôte est publié uniquement sur `127.0.0.1`.
-Sur chaque `push` et `pull_request`, GitHub Actions exécute successivement :
+Ouvrir **http://127.0.0.1:17860**. L'image embarque le modèle, écoute sur `0.0.0.0:7860`
+et démarre avec `python -m app.main` sous l'UID non root `10001`. Le port hôte reste local.
+Dans Docker, `API_CALLS_DB_PATH` vaut `/app/data/api_calls.sqlite3` ; le volume doit être
+accessible à cet utilisateur. La base locale de l'ordinateur et celle du volume sont distinctes.
+`docker logs scoring` affiche les journaux. `docker rm --force scoring` supprime le conteneur ;
+le volume `scoring-history` demeure. Réutiliser le même volume au prochain lancement conserve
+l'historique. **Sans volume, supprimer le conteneur supprime aussi sa base.**
+Les datasets et tests ne sont pas copiés dans l'image ; le contrôle est lancé depuis l'hôte.
 
-1. **`test`** : installe les dépendances, lance pytest et affiche la couverture des lignes et branches par fichier.
-2. **`build`** : après réussite des tests, construit l'image et l'exporte comme artefact du workflow.
-3. **`deploy`** : récupère cette même image, vérifie son identifiant, démarre le conteneur
-   sur `127.0.0.1:7860`, attend l'API et contrôle `/schema` puis `/predict` avec le vrai modèle.
-   En cas d'échec, affiche les journaux ; une étape `always()` supprime le conteneur même si le contrôle échoue.
+## Alimenter l'historique avec des appels simulés
 
-Une image construite peut contenir une application inutilisable : le contrôle HTTP vérifie son fonctionnement.
-**Ce déploiement est temporaire sur le runner GitHub Actions, sans hébergement permanent.**
-L'image n'est pas publiée dans un registre ; aucun secret n'est nécessaire pour l'artefact actuellement versionné.
-Après un push, consulter l'onglet **Actions** du dépôt pour constater le résultat des trois jobs.
-
-## Historique SQLite des appels
-
-Les fonctions `/predict` et `/schema` écrivent dans la table `api_calls` : identifiant UUID,
-date de début UTC, opération, statut (`success`, `rejected`, `error`) et durée en millisecondes.
-La durée mesure le traitement applicatif, hors attente Gradio et hors écriture SQLite.
-Pour une prédiction réussie, les entrées JSON (avec leurs `null`), le score, la classe, le seuil
-et la version sont conservés. Ce stockage complet est prévu pour les **données synthétiques du TP** ;
-ne pas utiliser de données personnelles réelles sans définir une politique de protection et de rétention.
-Un rejet garde son motif sans entrée ni score ; une panne garde un motif générique et son type,
-sans recopier le texte potentiellement sensible de l'exception. Un échec SQLite est signalé dans
-les logs du serveur et ne modifie pas la réponse d'origine. Les erreurs HTTP rejetées par Gradio
-avant l'entrée dans ces fonctions ne sont pas enregistrées. L'interface utilise la même fonction de prédiction.
-
-Le chemin par défaut est `data/api_calls.sqlite3` en local, ignoré par Git.
-Configurer `API_CALLS_DB_PATH` avant de démarrer l'application pour utiliser un autre fichier.
-Dans Docker, la valeur par défaut est `/app/data/api_calls.sqlite3`. Monter un volume pour
-conserver la base après remplacement du conteneur (un volume déjà existant doit être accessible à l'UID 10001) :
+Avec l'API démarrée, ouvrir un second terminal avec `.venv` activé :
 
 ```powershell
-docker run --detach --name scoring-stockage --publish 127.0.0.1:17860:7860 --mount type=volume,source=scoring-history,target=/app/data credit-scoring:local
-# Consulter l'historique du conteneur, sans installer de client SQLite :
-docker exec scoring-stockage python -m sqlite3 /app/data/api_calls.sqlite3 "SELECT request_id, timestamp_utc, operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
-# Consulter la base locale après un appel à l'API lancée hors Docker :
-python -m sqlite3 data/api_calls.sqlite3 "SELECT * FROM api_calls ORDER BY rowid DESC LIMIT 1;"
+python scripts/simuler_appels_api.py
+python scripts/simuler_appels_api.py --url http://127.0.0.1:17860 --count 100
+python scripts/simuler_appels_api.py --count 5 --seed 42
 ```
 
-T11 vérifie l'enregistrement complet, T12 le rejet sans requête et la tolérance aux erreurs SQLite.
-T13 remplace deux conteneurs successifs avec le même volume et compare leur historique.
-Il supprime uniquement ses propres conteneurs et volume de test, pas `scoring-history`.
-Pour inclure T13 dans pytest après construction de l'image :
+Le script lit le CSV processed (`--csv` permet de changer le chemin), demande `/schema`, puis
+sélectionne 100 lignes distinctes par défaut et envoie leurs variables à `/predict` une à une.
+Types, `null` et zéros sont conservés ; une pause aléatoire de 0,2 à 1 seconde sépare les appels.
+`--seed` reproduit le tirage sur un même CSV ; les clients peuvent revenir entre deux lots.
+L'API ciblée écrit dans sa propre base. Le script affiche les réussites et erreurs ; une panne
+réseau ou un délai dépassé arrête le lot sans nouvel essai automatique. `Ctrl+C` interrompt le lot.
+Ce tirage conserve le CSV et alimente l'historique ; il ne constitue ni un test de charge ni une dérive volontaire.
+
+## Tests et couverture
+
+```powershell
+python -m pytest
+```
+
+Les tests unitaires simulent le calcul et vérifient la vraie validation ; les tests d'intégration
+appellent un serveur Gradio temporaire avec des bases isolées. Le CSV local n'est pas nécessaire :
+les cas CSV utilisent des fichiers temporaires. `conftest.py` partage ces préparations et affiche T01–T13.
+La couverture des lignes et branches de `app/main.py` et `app/prediction.py` est affichée et
+écrite dans `tests/reports/coverage.json` ; elle ne couvre pas tout le projet et ne garantit
+pas la qualité des assertions. Rapports, cache et temporaires restent sous `tests/`, ignorés par Git.
+
+**T08** utilise `client_valid.json`, un client fictif complet, et le vrai modèle v4. Le résultat
+figé dans `t08_reference.json` est **0.9206103043784433**, classe **1**, seuil **0.5**, tolérance
+absolue **0.000001**. La ligne historique donnant `0.17086662346702958` était absente : la
+référence actuelle est synthétique. Un fichier manquant, une empreinte incompatible ou un
+résultat différent fait échouer le contrôle. La référence n'est pas régénérée pendant les tests.
+T08 et le contrôle Docker réutilisent les mêmes fonctions HTTP de `verifier_api_deployee.py`.
+
+**T11–T12** vérifient les traces de réussite, de rejet et de panne, ainsi que la conservation de
+la réponse si SQLite échoue. **T13** supprime un premier conteneur et compare les lignes dans
+un second monté sur le même volume. Pour inclure T13 après construction de l'image :
 
 ```powershell
 $env:SCORING_DOCKER_IMAGE = 'credit-scoring:local'
@@ -192,32 +206,46 @@ python -m pytest
 Remove-Item Env:SCORING_DOCKER_IMAGE
 ```
 
-Sans cette variable, pytest signale explicitement T13 comme ignoré ; le job `deploy` exécute
-obligatoirement ce contrôle sur l'image de `build`, via `tests/verifier_persistance_docker.py`.
-Le volume du runner reste temporaire : sa persistance entre deux conteneurs ne constitue pas
-un stockage durable entre deux exécutions de GitHub Actions. Aucune analyse de dérive n'est encore effectuée.
-## Changer de modèle : mises à jour manuelles
+Sans cette variable, pytest indique T13 comme ignoré. Le script supprime uniquement ses conteneurs et volume de test.
 
-Enregistrer une nouvelle version dans MLflow ne change pas automatiquement le modèle de l'API.
+## Pipeline GitHub Actions
 
-1. Exporter le pipeline approuvé et ses fichiers MLflow dans `app/artifacts/<nom>/<version>/`.
-   Mettre à jour `provenance.json` : nom, version, identifiants réels du modèle et du run, seuil et provenance.
-   Le code actuel sélectionne explicitement la classe de défaut **1** : modifier `positive_class` seul ne la change pas.
+Sur les `push` et `pull_request`, les trois jobs s'enchaînent sur Ubuntu 24.04 :
+
+1. **`test`** installe les dépendances dans un environnement neuf, lance pytest et affiche la couverture.
+2. **`build`**, après réussite, construit l'image et la transmet par un artefact conservé un jour.
+3. **`deploy`** charge cette même image, contrôle son identifiant, démarre le conteneur sur
+   `127.0.0.1:7860`, puis appelle `/schema` et `/predict` avec le vrai modèle et la référence T08.
+   Il exécute aussi obligatoirement T13 avec cette image. Un contrôle en échec fait échouer le job ;
+   les journaux sont affichés et une étape `always()` supprime le conteneur principal.
+
+Les contrôles utilisent la bibliothèque standard Python ; `deploy` n'installe pas pytest.
+Conteneurs et volumes de test sont temporaires : **aucun hébergement permanent ni historique entre deux runners**.
+L'image n'est pas publiée dans un registre ; aucun secret utilisateur n'est requis pour l'artefact versionné.
+Dans **Actions → exécution → test**, ouvrir « Couverture des lignes et des branches par fichier ».
+L'étape des tests liste les lignes manquantes ; `coverage.json` n'est pas publié comme artefact téléchargeable.
+
+## Remplacer le modèle
+
+La version 4 est sélectionnée explicitement ; une nouvelle version MLflow n'est pas adoptée automatiquement.
+
+1. Exporter le pipeline approuvé et ses fichiers dans `app/artifacts/<nom>/<version>/`, puis mettre
+   à jour `provenance.json` (identifiants MLflow, version, source et seuil). Vérifier les dépendances.
 2. Modifier `ARTIFACTS_PATH` dans `app/prediction.py` et `ARTIFACTS` dans `tests/verifier_api_deployee.py`.
-   Vérifier le prétraitement embarqué et la compatibilité des dépendances avec le nouvel artefact.
-   Le schéma sera relu depuis son `MLmodel` ; toutes ses clés resteront obligatoires.
-3. Adapter `client_valid.json` si les variables ou types changent, ainsi que les règles métier si nécessaire.
-   Mettre à jour les attentes de version et de nombre de variables dans les tests, dont `conftest.py`,
-   le contrôleur de déploiement et la documentation. Les assertions actuelles ciblent la version 4 et 310 variables.
-4. Calculer directement avec le vrai pipeline le résultat du JSON, en dehors de l'API, puis l'examiner et l'approuver.
-   Mettre à jour manuellement `t08_reference.json` : score, classe, seuil, nom, version, identifiants MLflow,
-   empreinte SHA-256 des octets de `model.pkl` et empreinte SHA-256 du JSON canonique du client.
-   Ce JSON canonique est `json.dumps(client, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
-   allow_nan=False).encode('utf-8')`. Conserver une tolérance justifiée et expliquer la référence dans `note`.
-5. Relancer pytest, reconstruire l'image et exécuter le contrôle Docker ci-dessus, puis redémarrer l'API.
-   Examiner et versionner ensemble ces changements ; le push déclenchera la vérification CI/CD.
+   Contrôler le prétraitement et la signature ; l'API continuera d'exiger toutes ses clés.
+   La classe de défaut est codée à **1** : modifier `positive_class` seul ne change pas ce comportement.
+3. Adapter `client_valid.json`, les règles métier si nécessaire, les attentes dans les tests et
+   `conftest.py`, le contrôleur et la documentation. Les assertions actuelles ciblent 310 variables et la v4.
+4. Calculer directement avec le vrai pipeline, hors API, le résultat du JSON et l'approuver avant de
+   mettre à jour `t08_reference.json` : score, classe, seuil, nom, version, identifiants, SHA-256 des
+   octets de `model.pkl` et SHA-256 du JSON client canonique ci-dessous. Justifier la tolérance et `note`.
+5. Relancer les tests, reconstruire l'image, vérifier l'API et T13, puis redémarrer le service.
+   Versionner ensemble artefact, référence et adaptations ; le push déclenche le pipeline.
 
-T08 mesure une non-régression technique, pas la qualité prédictive : évaluer le nouveau modèle sur des données
-appropriées avant son adoption. Ne jamais changer la référence simplement pour faire passer un test.
-Aucun notebook ni générateur de référence n'est fourni ; cette préparation reste manuelle.
-Le stockage des appels est disponible ; l'analyse de dérive et le tableau de bord restent à réaliser.
+```python
+json.dumps(client, sort_keys=True, separators=(',', ':'), ensure_ascii=True,
+           allow_nan=False).encode('utf-8')
+```
+
+Aucun générateur de référence n'est fourni. T08 vérifie une non-régression technique ; évaluer séparément
+la qualité prédictive du modèle. Ne pas changer la référence pour masquer un échec.
