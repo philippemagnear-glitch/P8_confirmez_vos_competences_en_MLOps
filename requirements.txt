@@ -3,5 +3,8 @@ mlflow==3.16.0
 scikit-learn==1.9.0
 lightgbm==4.7.0
 gradio==6.31.0
+gradio-client==2.7.2
+evidently==0.7.23
+ipykernel==7.4.0
 pytest==9.2.0
 pytest-cov==7.1.0
