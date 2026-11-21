@@ -1,0 +1,41 @@
+# Une seule image applicative, deux services accessibles uniquement en local.
+services:
+  api:
+    image: credit-scoring:local
+    build: .
+    environment:
+      MONITORING_URL: ${MONITORING_URL:-http://localhost:8501}
+    ports:
+      - "127.0.0.1:7860:7860"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/health', timeout=3).close()"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 6
+
+  monitoring:
+    image: credit-scoring:local
+    build: .
+    environment:
+      SCORING_URL: ${SCORING_URL:-http://localhost:7860}
+    ports:
+      - "127.0.0.1:8501:8501"
+    command:
+      - python
+      - -m
+      - streamlit
+      - run
+      - dashboard.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --server.headless=true
+      - --browser.gatherUsageStats=false
+    volumes:
+      - ./data:/app/data:ro
+    depends_on:
+      api:
+        condition: service_healthy
+

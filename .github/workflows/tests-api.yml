@@ -99,9 +99,45 @@ jobs:
             exit 1
           fi
       - name: Démarrer le conteneur sur la boucle locale du runner
-        run: docker run --detach --name credit-scoring-ci --publish 127.0.0.1:7860:7860 "$IMAGE_TAG"
+        run: |
+          mkdir -p "$RUNNER_TEMP/scoring-data"
+          chmod 0777 "$RUNNER_TEMP/scoring-data"
+          docker run --detach --name credit-scoring-ci --publish 127.0.0.1:7860:7860 --mount "type=bind,source=$RUNNER_TEMP/scoring-data,target=/app/data" "$IMAGE_TAG"
       - name: Attendre puis vérifier schema et predict avec le vrai modèle
         run: python tests/verifier_api_deployee.py --url http://127.0.0.1:7860 --timeout 120
+      - name: Démarrer Streamlit avec la même base SQLite en lecture seule
+        run: >-
+          docker run --detach --name scoring-dashboard-ci
+          --publish 127.0.0.1:8501:8501
+          --mount "type=bind,source=$RUNNER_TEMP/scoring-data,target=/app/data,readonly"
+          "$IMAGE_TAG" python -m streamlit run dashboard.py
+          --server.address=0.0.0.0 --server.port=8501
+          --server.headless=true --browser.gatherUsageStats=false
+      - name: Vérifier la santé des deux services et la lecture SQLite du dashboard
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          from urllib.error import URLError
+          from urllib.request import urlopen
+
+          for url in ("http://127.0.0.1:7860/health", "http://127.0.0.1:8501/_stcore/health"):
+              deadline = time.monotonic() + 60
+              while True:
+                  try:
+                      with urlopen(url, timeout=3) as response:
+                          body = response.read()
+                          assert response.status == 200
+                          if url.endswith("/health") and ":7860/" in url:
+                              assert json.loads(body) == {"status": "ok", "model_loaded": True}
+                      break
+                  except (URLError, TimeoutError):
+                      if time.monotonic() >= deadline:
+                          raise
+                      time.sleep(1)
+              print("Service prêt :", url)
+          PY
+          docker exec scoring-dashboard-ci python -c "from monitoring import DB_PATH, lire_fenetres; calls, _ = lire_fenetres(DB_PATH, 100); assert calls.status.eq('success').any(), 'Aucune prédiction lisible dans SQLite'; print('Dashboard : SQLite lisible,', len(calls), 'prédiction(s)')"
       - name: T13 - Vérifier la conservation SQLite avec la même image et un volume
         run: python tests/verifier_persistance_docker.py --image "$IMAGE_TAG"
       - name: Journaux du conteneur en cas d'échec
@@ -109,9 +145,13 @@ jobs:
         run: |
           docker logs --timestamps --tail 200 credit-scoring-ci 2>&1 || true
           docker inspect --format '{{json .State}}' credit-scoring-ci 2>/dev/null || true
-      - name: Arrêter et supprimer le conteneur
+          docker logs --timestamps --tail 200 scoring-dashboard-ci 2>&1 || true
+      - name: Arrêter et supprimer les deux conteneurs
         if: ${{ always() }}
         run: |
           if docker container inspect credit-scoring-ci >/dev/null 2>&1; then
             docker rm --force credit-scoring-ci
+          fi
+          if docker container inspect scoring-dashboard-ci >/dev/null 2>&1; then
+            docker rm --force scoring-dashboard-ci
           fi

@@ -56,3 +56,7 @@ Thumbs.db
 
 # ---------- Instructions locales de Codex ----------
 AGENTS.md
+
+# Streamlit agent skills (liens propres à l'environnement local)
+/.agents/skills/developing-with-streamlit
+/.claude/skills/developing-with-streamlit

@@ -25,6 +25,7 @@ RUN useradd --create-home --uid 10001 scorer \
     && mkdir -p /app/data \
     && chown scorer:scorer /app/data
 COPY --chown=scorer:scorer app/ ./app/
+COPY --chown=scorer:scorer dashboard.py monitoring.py ./
 USER scorer
 
 EXPOSE 7860

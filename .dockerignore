@@ -4,5 +4,7 @@
 !requirements.txt
 !app/
 !app/**
+!dashboard.py
+!monitoring.py
 app/**/__pycache__/
 app/**/*.pyc

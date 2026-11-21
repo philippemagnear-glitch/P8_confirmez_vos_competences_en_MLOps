@@ -12,6 +12,7 @@ os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 import gradio as gr
 import pandas as pd
+from fastapi import FastAPI
 
 from app.prediction import CreditScoringModel, InputValidationError
 from app.storage import ApiCallStore
@@ -106,6 +107,8 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
         return predict(client)
 
     with gr.Blocks(title="Scoring crédit", analytics_enabled=False) as demo:
+        monitoring_url = os.environ.get("MONITORING_URL", "http://localhost:8501")
+        gr.Button("Ouvrir le dashboard", link=monitoring_url, link_target="_blank")
         gr.Markdown(
             "# Scoring crédit\n"
             "Obtenez la probabilité de défaut d'un client à partir de ses données "
@@ -184,12 +187,33 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
     return demo
 
 
+def create_app(model: CreditScoringModel | None = None) -> FastAPI:
+    """Expose la santé et Gradio après chargement réussi du modèle.
+
+    /health confirme que le serveur répond et que le modèle a été chargé.
+    Il ne teste ni une prédiction, ni SQLite, ni le dashboard.
+    """
+    if model is None:
+        model = CreditScoringModel()
+    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    demo = create_demo(model).queue()
+
+    @app.get("/health")
+    def health():
+        return {"status": "ok", "model_loaded": True}
+
+    # Déclarer /health avant le montage à la racine, qui reçoit les autres routes.
+    return gr.mount_gradio_app(
+        app, demo, path="/", footer_links=["api"], run_history=False,
+    )
+
+
 if __name__ == "__main__":
+    import uvicorn
+
     logging.basicConfig(level=logging.INFO)
-    create_demo().queue().launch(
-        server_name=os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1"),
-        server_port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
-        share=False,
-        footer_links=["api"],
-        run_history=False,
+    uvicorn.run(
+        create_app(),
+        host=os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1"),
+        port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
     )
