@@ -118,7 +118,6 @@ jobs:
           python - <<'PY'
           import json
           import time
-          from urllib.error import URLError
           from urllib.request import urlopen
 
           for url in ("http://127.0.0.1:7860/health", "http://127.0.0.1:8501/_stcore/health"):
@@ -131,7 +130,9 @@ jobs:
                           if url.endswith("/health") and ":7860/" in url:
                               assert json.loads(body) == {"status": "ok", "model_loaded": True}
                       break
-                  except (URLError, TimeoutError):
+                  # Un port publié peut réinitialiser la connexion avant que
+                  # Streamlit ait fini son démarrage : réessayer jusqu'au délai.
+                  except OSError:
                       if time.monotonic() >= deadline:
                           raise
                       time.sleep(1)
