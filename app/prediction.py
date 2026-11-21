@@ -4,6 +4,7 @@ import json
 import math
 from numbers import Integral, Real
 from pathlib import Path
+from time import perf_counter
 
 import mlflow.sklearn
 import pandas as pd
@@ -112,6 +113,9 @@ class CreditScoringModel:
         if len(classes) != 2 or 1 not in classes:
             raise ValueError("Le modèle doit prédire la classe de défaut 1.")
         self.default_class_index = classes.index(1)
+        estimator = self.pipeline.steps[-1][1] if hasattr(self.pipeline, "steps") else None
+        parameters = getattr(getattr(estimator, "booster_", None), "params", {})
+        self.execution_device = parameters.get("device_type", parameters.get("device", "cpu"))
 
     def schema(self) -> dict:
         """Expose les variables MLflow avec une présence obligatoire côté API."""
@@ -199,10 +203,16 @@ class CreditScoringModel:
 
         return pd.DataFrame([values], columns=self.feature_names).astype(dtypes)
 
-    def predict(self, client: dict) -> dict:
+    def predict(self, client: dict, *, measurements: dict | None = None) -> dict:
         """Retourne la probabilité de défaut et la classe au seuil retenu."""
         frame = self.prepare_input(client)
-        probabilities = self.pipeline.predict_proba(frame)
+        started = perf_counter()
+        try:
+            probabilities = self.pipeline.predict_proba(frame)
+        finally:
+            if measurements is not None:
+                # Imputation et LightGBM ; validation et création du DataFrame exclues.
+                measurements["inference_ms"] = (perf_counter() - started) * 1000
         score = float(probabilities[0, self.default_class_index])
         if not math.isfinite(score) or not 0 <= score <= 1:
             raise RuntimeError("Le modèle a retourné une probabilité invalide.")

@@ -10,6 +10,9 @@ la base. Dans Docker, un volume permet de conserver cette base lorsque
 le conteneur est supprimé puis remplacé.
 
 Chaque écriture ouvre puis ferme sa propre connexion SQLite.
+Les colonnes de mesure sont ajoutées sans effacer l'historique : les anciennes
+lignes restent sans mesure d'inférence ou CPU. La latence complète est mesurée
+par le programme appelant, qui la corrèle avec request_id.
 Si l'enregistrement échoue, le serveur journalise le problème sans
 modifier la réponse de l'API.
 """
@@ -37,9 +40,10 @@ class ApiCallStore:
         ))
 
     def record(self, *, operation, status, started_at, started, inputs=None,
-               result=None, reason=None):
+               result=None, reason=None, request_id=None, measurements=None):
         duration_ms = max(0.0, (perf_counter() - started) * 1000)
-        request_id = str(uuid4())
+        request_id = request_id or str(uuid4())
+        measurements = measurements or {}
         try:
             # Seules les prédictions réussies conservent leurs entrées et sorties.
             prediction = operation == "predict" and status == "success"
@@ -48,6 +52,8 @@ class ApiCallStore:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             with closing(sqlite3.connect(self.path, timeout=1.0)) as connection:
                 with connection:
+                    # Sérialise aussi la migration si deux premiers appels arrivent ensemble.
+                    connection.execute("BEGIN IMMEDIATE")
                     connection.execute("""
                         CREATE TABLE IF NOT EXISTS api_calls (
                             request_id TEXT PRIMARY KEY,
@@ -63,12 +69,25 @@ class ApiCallStore:
                             reason TEXT
                         )
                     """)
+                    existing = {row[1] for row in connection.execute("PRAGMA table_info(api_calls)")}
+                    for name, data_type in (
+                        ("inference_ms", "REAL"), ("cpu_time_ms", "REAL"),
+                        ("cpu_percent", "REAL"), ("execution_device", "TEXT"),
+                    ):
+                        if name not in existing:
+                            connection.execute(f"ALTER TABLE api_calls ADD COLUMN {name} {data_type}")
                     connection.execute("""
-                        INSERT INTO api_calls VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO api_calls (
+                            request_id, timestamp_utc, operation, status, duration_ms,
+                            input_json, score, prediction, threshold, model_version, reason,
+                            inference_ms, cpu_time_ms, cpu_percent, execution_device
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         request_id, started_at, operation, status, duration_ms, payload,
                         output.get("score"), output.get("prediction"),
                         output.get("threshold"), output.get("model_version"), reason,
+                        measurements.get("inference_ms"), measurements.get("cpu_time_ms"),
+                        measurements.get("cpu_percent"), measurements.get("execution_device"),
                     ))
         except (OSError, sqlite3.Error, TypeError, ValueError) as error:
             LOGGER.error("Stockage SQLite impossible pour %s (%s).",

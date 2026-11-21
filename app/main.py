@@ -5,7 +5,8 @@ import logging
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from time import perf_counter
+from time import perf_counter, process_time
+from uuid import uuid4
 
 # Désactive la télémétrie Gradio avant son import.
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
@@ -56,13 +57,18 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
         LOGGER.warning("Échantillon CSV indisponible : %s", error)
         demo_clients = {}
 
-    def run_operation(operation, action, client=None):
+    def run_operation(operation, action, client=None, measurements=None):
         """Mesure le traitement et trace son issue, même si le calcul échoue."""
         started = perf_counter()
+        cpu_started = process_time()
+        request_id = str(uuid4())
+        measurements = measurements if measurements is not None else {}
         started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         status, result, reason = "error", None, None
         try:
             result = action()
+            if operation == "predict":
+                result = {**result, "request_id": request_id}
             status = "success"
             return result
         except InputValidationError as error:
@@ -81,12 +87,24 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
                          type(error).__name__)
             raise gr.Error(message, print_exception=False) from None
         finally:
+            elapsed_ms = (perf_counter() - started) * 1000
+            cpu_ms = (process_time() - cpu_started) * 1000
+            measurements.update(
+                cpu_time_ms=cpu_ms,
+                cpu_percent=100 * cpu_ms / elapsed_ms if elapsed_ms else 0.0,
+                execution_device=model.execution_device if operation == "predict" else None,
+            )
             call_store.record(operation=operation, status=status, started_at=started_at,
-                              started=started, inputs=client, result=result, reason=reason)
+                              started=started, inputs=client, result=result, reason=reason,
+                              request_id=request_id, measurements=measurements)
 
     def predict(client: dict) -> dict:
         """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""
-        return run_operation("predict", lambda: model.predict(client), client)
+        measurements = {}
+        return run_operation(
+            "predict", lambda: model.predict(client, measurements=measurements),
+            client, measurements,
+        )
 
     def get_schema() -> dict:
         """Retourne les variables attendues, leurs types et leur caractère obligatoire."""
@@ -169,6 +187,7 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
             api_description=(
                 "Reçoit un objet JSON contenant les 310 clés obligatoires et retourne "
                 "score, prediction, threshold, model_name et model_version. "
+                "request_id permet de retrouver les mesures de cet appel dans SQLite. "
                 "Les valeurs numériques null sont imputées ; zéro est conservé. "
                 "Données invalides : gradio_client lève AppError avec un message "
                 "nommant le champ à corriger. Panne interne du calcul : AppError "

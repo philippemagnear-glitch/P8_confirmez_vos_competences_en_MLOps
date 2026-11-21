@@ -130,7 +130,8 @@ finally:
     client.close()
 ```
 
-La réponse contient `score`, `prediction`, `threshold`, `model_name` et `model_version`.
+La réponse contient `score`, `prediction`, `threshold`, `model_name`, `model_version`
+et `request_id`, qui relie la réponse à sa ligne SQLite.
 **Use via API** décrit le protocole : une entrée invalide produit `AppError` avec le motif ;
 une panne interne produit un message générique, sans nouveau score ni détails sensibles.
 Le programme appelant doit aussi gérer les erreurs réseau. En HTTP brut, le POST
@@ -142,11 +143,21 @@ Pour alimenter SQLite, avec l'API démarrée :
 ```powershell
 python scripts/simuler_appels_api.py
 python scripts/simuler_appels_api.py --count 100 --seed 42
+python scripts/simuler_appels_api.py --count 300 --seed 42 --metrics-output tests/reports/performance/baseline.csv
 ```
 
 Le script tire 100 lignes distinctes du CSV de test préparé, préserve types, `null` et zéros,
 puis envoie les appels espacés de 0,2 à 1 seconde. `--csv` et `--url` changent les sources et la destination.
 Les clients peuvent revenir entre lots ; une panne réseau arrête le lot. Ce n'est pas un test de charge.
+
+L'option `--metrics-output` conserve les latences (hors pauses), scores, identifiants
+et empreintes des entrées, sans recopier les données client.
+SQLite conserve séparément `inference_ms` (imputation et LightGBM), `cpu_time_ms`,
+`cpu_percent` et `execution_device`. La migration préserve les anciennes lignes, dont
+les nouvelles mesures restent nulles. `cpu_percent` mesure le CPU du processus pendant
+le traitement : 100 % représente un cœur, et plusieurs threads peuvent dépasser 100 %.
+Ce n'est pas l'utilisation CPU globale de la machine. Le backend CPU actuel n'utilise
+pas le GPU. Mesures et limites de comparaison : [baseline avant optimisation](docs/baseline_avant_optimisation.md).
 
 ## Historique SQLite et monitoring
 

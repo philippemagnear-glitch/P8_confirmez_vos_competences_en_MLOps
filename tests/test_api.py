@@ -3,6 +3,7 @@
 import json
 import logging
 from unittest.mock import Mock
+from uuid import UUID
 
 import gradio as gr
 import pandas as pd
@@ -106,6 +107,8 @@ def test_T10_http_schema_and_valid_json_without_demo_csv(api, client_data, schem
     assert by_name["OWN_CAR_AGE_ANOMALOUS"]["type"] == "boolean"
     assert by_name["OWN_CAR_AGE_ANOMALOUS"]["nullable"] is False
     result = api.client.submit(client=client_data, api_name="/predict").result(timeout=20)
+    request_id = result.pop("request_id")
+    assert str(UUID(request_id)) == request_id
     assert result == {
         "score": 0.25, "prediction": 0, "threshold": 0.5,
         "model_name": "credit_scoring_lightgbm", "model_version": "4",
