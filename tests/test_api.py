@@ -78,13 +78,13 @@ def test_T09_internal_error_is_generic_and_private(
 ):
     secret = "DONNEES_CLIENT_CONFIDENTIELLES_180000"
     api.scorer.session.failure = exception_type(secret + json.dumps(client_data))
-    with caplog.at_level(logging.ERROR, logger="app.main"):
+    with caplog.at_level(logging.ERROR, logger="app.scoring_service"):
         with pytest.raises(AppError) as raised:
             api.client.submit(client=client_data, api_name="/predict").result(timeout=20)
     assert "La prédiction a échoué" in str(raised.value)
     assert secret not in str(raised.value)
     assert "AMT_INCOME_TOTAL" not in str(raised.value)
-    assert "Échec de la prédiction" in caplog.text
+    assert "Échec de predict" in caplog.text
     assert exception_type.__name__ in caplog.text
     assert secret not in caplog.text
     assert "AMT_INCOME_TOTAL" not in caplog.text
