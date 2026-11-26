@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from monitoring import analyser_performances, mesures_performances
+from app.monitoring.analysis import analyser_performances, mesures_performances
 
 
 @pytest.fixture
@@ -90,7 +90,7 @@ def test_empty_and_uninstrumented_database_remain_readable(performance_database)
 
 
 def test_performance_view_does_not_need_train_or_evidently(performance_database, monkeypatch):
-    import monitoring
+    from app.monitoring import analysis as monitoring
 
     def forbidden(*args, **kwargs):
         pytest.fail("La vue performances ne doit pas calculer la référence ou la dérive.")
@@ -98,7 +98,7 @@ def test_performance_view_does_not_need_train_or_evidently(performance_database,
     monkeypatch.setattr(monitoring, "DB_PATH", performance_database)
     monkeypatch.setattr(monitoring, "charger_reference", forbidden)
     monkeypatch.setattr(monitoring, "analyser_appels", forbidden)
-    dashboard = Path(__file__).resolve().parents[1] / "dashboard.py"
+    dashboard = Path(__file__).resolve().parents[1] / "app" / "monitoring" / "dashboard.py"
     app = AppTest.from_file(str(dashboard)).run(timeout=30)
     next(button for button in app.button if button.label == "Actualiser les performances").click().run(timeout=30)
     assert not app.exception

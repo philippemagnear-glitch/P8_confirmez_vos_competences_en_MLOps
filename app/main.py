@@ -1,5 +1,6 @@
 """Interface Gradio et API : lancer depuis la racine avec python -m app.main."""
 
+import cProfile
 import json
 import logging
 import os
@@ -53,6 +54,7 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
     if model is None:
         model = CreditScoringModel()
     call_store = ApiCallStore()
+    profiling_enabled = os.environ.get("ENABLE_PROFILING", "0") == "1"
     try:
         demo_clients = load_demo_clients(model)
     except (OSError, ValueError) as error:
@@ -67,6 +69,10 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
         measurements = measurements if measurements is not None else {}
         started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         status, result, reason = "error", None, None
+        # Créé dans le thread Gradio qui traite cet appel, après chargement du modèle.
+        profiler = cProfile.Profile() if profiling_enabled and operation == "predict" else None
+        if profiler is not None:
+            profiler.enable()
         try:
             result = action()
             if operation == "predict":
@@ -94,9 +100,19 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
                 cpu_time_ms=cpu_ms,
                 execution_device=model.execution_device if operation == "predict" else None,
             )
-            call_store.record(operation=operation, status=status, started_at=started_at,
-                              started=started, inputs=client, result=result, reason=reason,
-                              request_id=request_id, measurements=measurements)
+            try:
+                call_store.record(operation=operation, status=status, started_at=started_at,
+                                  started=started, inputs=client, result=result, reason=reason,
+                                  request_id=request_id, measurements=measurements)
+            finally:
+                if profiler is not None:
+                    profiler.disable()
+                    try:
+                        directory = PROJECT_ROOT / "tests" / "reports" / "profiling"
+                        directory.mkdir(parents=True, exist_ok=True)
+                        profiler.dump_stats(str(directory / f"{request_id}.prof"))
+                    except OSError as error:
+                        LOGGER.error("Profil non enregistré (%s).", type(error).__name__)
 
     def predict(client: dict) -> dict:
         """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""

@@ -23,8 +23,8 @@ Client → Gradio → Validation → Pipeline entraîné → Score et classe
 | `app/prediction.py` | Chargement du modèle, validation et prédiction. |
 | `app/storage.py` | Historique SQLite, sans bloquer la réponse si le stockage échoue. |
 | `app/artifacts/credit_scoring_lightgbm/4/` | Pipeline, signature MLflow et provenance. |
-| `monitoring.py` | Lecture SQLite, analyses Evidently et indicateurs opérationnels. |
-| `dashboard.py` | Affichage Streamlit, cache et déclenchement manuel de l'analyse. |
+| `app/monitoring/analysis.py` | Lecture SQLite, analyses Evidently et indicateurs opérationnels. |
+| `app/monitoring/dashboard.py` | Affichage Streamlit, cache et déclenchement manuel de l'analyse. |
 | `scripts/simuler_appels_api.py` | Simulation d'appels depuis le CSV de clients préparés. |
 | `tests/` | Tests, JSON synthétique de référence et contrôles du déploiement. |
 | `compose.yaml`, `Dockerfile` | Deux services locaux utilisant la même image. |
@@ -48,7 +48,7 @@ python -m app.main
 Dans un deuxième terminal, avec `.venv` activé :
 
 ```powershell
-python -m streamlit run dashboard.py --server.address 127.0.0.1 --browser.gatherUsageStats false
+python -m streamlit run app/monitoring/dashboard.py --server.address 127.0.0.1 --browser.gatherUsageStats false
 ```
 
 - Prédictions : **http://localhost:7860**.

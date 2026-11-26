@@ -1,8 +1,8 @@
 """Interface Streamlit du suivi de scoring.
 
-Affiche les résultats de monitoring.py. Le bouton déclenche l'analyse ; le cache
+Affiche les résultats de analysis.py. Le bouton déclenche l'analyse ; le cache
 de référence, le verrou et les résultats de session sont gérés ici.
-Lancement : python -m streamlit run dashboard.py
+Lancement : python -m streamlit run app/monitoring/dashboard.py
 """
 
 import logging
@@ -13,7 +13,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from monitoring import (
+from app.monitoring.analysis import (
     DB_PATH, TRAIN_PATH, analyser_appels, analyser_performances, charger_reference, empreinte_reference,
 )
 

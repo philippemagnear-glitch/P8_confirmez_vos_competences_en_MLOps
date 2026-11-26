@@ -22,7 +22,7 @@ from evidently.metrics import MissingValueCount, ValueDrift
 
 from app.prediction import ARTIFACTS_PATH, CreditScoringModel
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 TRAIN_PATH = ROOT / "data/processed/application_train_final_encoded.csv"
 DB_PATH = Path(os.environ.get("API_CALLS_DB_PATH", str(ROOT / "data/api_calls.sqlite3")))
 MIN_OBSERVATIONS = 50
