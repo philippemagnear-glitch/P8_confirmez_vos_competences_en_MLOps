@@ -89,11 +89,9 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
                          type(error).__name__)
             raise gr.Error(message, print_exception=False) from None
         finally:
-            elapsed_ms = (perf_counter() - started) * 1000
             cpu_ms = (process_time() - cpu_started) * 1000
             measurements.update(
                 cpu_time_ms=cpu_ms,
-                cpu_percent=100 * cpu_ms / elapsed_ms if elapsed_ms else 0.0,
                 execution_device=model.execution_device if operation == "predict" else None,
             )
             call_store.record(operation=operation, status=status, started_at=started_at,
@@ -220,36 +218,15 @@ def create_app(model: CreditScoringModel | None = None) -> FastAPI:
     demo = create_demo(model).queue()
     store = ApiCallStore()
 
-    @app.post("/measurement-runs")
-    def create_run(
-        name: Annotated[str, Body(min_length=1, max_length=120)],
-        metadata: Annotated[dict, Body()],
-    ):
-        """Identifie un lot de mesures, sans créer d'appel de scoring supplémentaire."""
-        try:
-            return {"run_id": store.create_run(name, metadata)}
-        except (OSError, sqlite3.Error) as error:
-            LOGGER.error("Création du lot impossible (%s).", type(error).__name__)
-            raise HTTPException(503, "Stockage SQLite indisponible.") from None
-        except (TypeError, ValueError):
-            raise HTTPException(422, "Métadonnées JSON invalides.") from None
-
     @app.post("/measurements")
     def save_latency(
         request_id: Annotated[UUID, Body()],
-        run_id: Annotated[UUID, Body()],
         latency_ms: Annotated[float, Body(strict=True, ge=0, allow_inf_nan=False)],
-        client_timestamp_utc: Annotated[datetime, Body()],
-        client_sequence: Annotated[int, Body(strict=True, ge=1)],
     ):
         """Ajoute la latence côté client à une prédiction déjà enregistrée."""
-        if client_timestamp_utc.utcoffset() is None:
-            raise HTTPException(422, "La date doit préciser son fuseau horaire.")
         try:
             store.record_latency(
-                request_id=str(request_id), run_id=str(run_id), latency_ms=latency_ms,
-                client_timestamp_utc=client_timestamp_utc.astimezone(timezone.utc).isoformat(),
-                client_sequence=client_sequence,
+                request_id=str(request_id), latency_ms=latency_ms,
             )
         except KeyError as error:
             raise HTTPException(404, error.args[0]) from None

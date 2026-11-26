@@ -17,14 +17,12 @@ Si l'enregistrement échoue, le serveur journalise le problème sans
 modifier la réponse de l'API.
 """
 
-import hashlib
 import json
 import logging
 import math
 import os
 import sqlite3
 from contextlib import closing, contextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
@@ -62,61 +60,32 @@ class ApiCallStore:
                 existing = {row[1] for row in connection.execute("PRAGMA table_info(api_calls)")}
                 for name, data_type in (
                     ("inference_ms", "REAL"), ("cpu_time_ms", "REAL"),
-                    ("cpu_percent", "REAL"), ("execution_device", "TEXT"),
-                    ("latency_ms", "REAL"), ("run_id", "TEXT"),
-                    ("input_sha256", "TEXT"), ("client_timestamp_utc", "TEXT"),
-                    ("client_sequence", "INTEGER"),
+                    ("execution_device", "TEXT"),
+                    ("latency_ms", "REAL"),
                 ):
                     if name not in existing:
                         connection.execute(f"ALTER TABLE api_calls ADD COLUMN {name} {data_type}")
-                connection.execute("""
-                    CREATE TABLE IF NOT EXISTS measurement_runs (
-                        run_id TEXT PRIMARY KEY, name TEXT NOT NULL,
-                        created_at_utc TEXT NOT NULL, metadata_json TEXT NOT NULL
-                    )
-                """)
                 yield connection
 
-    def create_run(self, name: str, metadata: dict) -> str:
-        """Identifie un lot ; sa configuration est conservée dans la même base."""
-        run_id = str(uuid4())
-        payload = json.dumps(metadata, allow_nan=False)
-        with self._connection() as connection:
-            connection.execute(
-                "INSERT INTO measurement_runs VALUES (?, ?, ?, ?)",
-                (run_id, name, datetime.now(timezone.utc).isoformat(), payload),
-            )
-        return run_id
-
-    def record_latency(self, *, request_id: str, run_id: str, latency_ms: float,
-                       client_timestamp_utc: str, client_sequence: int):
-        """Complète un succès existant ; un second envoi identique est sans effet."""
+    def record_latency(self, *, request_id: str, latency_ms: float):
+        """Complète un succès existant sans écraser une mesure déjà enregistrée."""
         if isinstance(latency_ms, bool) or not math.isfinite(latency_ms) or latency_ms < 0:
             raise ValueError("La latence doit être un nombre fini positif ou nul.")
         with self._connection() as connection:
-            if connection.execute(
-                "SELECT 1 FROM measurement_runs WHERE run_id=?", (run_id,)
-            ).fetchone() is None:
-                raise KeyError("Lot inconnu.")
             row = connection.execute(
-                "SELECT input_json,latency_ms,run_id,client_timestamp_utc,client_sequence "
-                "FROM api_calls WHERE request_id=? AND operation='predict' AND status='success'",
+                "SELECT latency_ms FROM api_calls "
+                "WHERE request_id=? AND operation='predict' AND status='success'",
                 (request_id,),
             ).fetchone()
             if row is None:
                 raise KeyError("Prédiction réussie introuvable.")
-            values = (latency_ms, run_id, client_timestamp_utc, client_sequence)
-            if row[1] is not None:
-                if tuple(row[1:]) == values:
+            if row[0] is not None:
+                if row[0] == latency_ms:
                     return
                 raise RuntimeError("Une mesure existe déjà pour cet appel.")
-            fingerprint = hashlib.sha256(json.dumps(
-                json.loads(row[0]), sort_keys=True, separators=(",", ":"), allow_nan=False,
-            ).encode()).hexdigest()
             connection.execute(
-                "UPDATE api_calls SET latency_ms=?,run_id=?,client_timestamp_utc=?,"
-                "client_sequence=?,input_sha256=? WHERE request_id=?",
-                (*values, fingerprint, request_id),
+                "UPDATE api_calls SET latency_ms=? WHERE request_id=?",
+                (latency_ms, request_id),
             )
 
     def record(self, *, operation, status, started_at, started, inputs=None,
@@ -134,14 +103,14 @@ class ApiCallStore:
                         INSERT INTO api_calls (
                             request_id, timestamp_utc, operation, status, duration_ms,
                             input_json, score, prediction, threshold, model_version, reason,
-                            inference_ms, cpu_time_ms, cpu_percent, execution_device
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            inference_ms, cpu_time_ms, execution_device
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         request_id, started_at, operation, status, duration_ms, payload,
                         output.get("score"), output.get("prediction"),
                         output.get("threshold"), output.get("model_version"), reason,
                         measurements.get("inference_ms"), measurements.get("cpu_time_ms"),
-                        measurements.get("cpu_percent"), measurements.get("execution_device"),
+                        measurements.get("execution_device"),
                     ))
         except (OSError, sqlite3.Error, TypeError, ValueError) as error:
             LOGGER.error("Stockage SQLite impossible pour %s (%s).",

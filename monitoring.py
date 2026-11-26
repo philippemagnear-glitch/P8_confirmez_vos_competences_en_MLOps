@@ -117,6 +117,72 @@ def mesures_service(calls: pd.DataFrame) -> pd.Series:
     return pd.Series(dict(rows), dtype="float64")
 
 
+def mesures_performances(calls: pd.DataFrame) -> dict:
+    """Agrège une fenêtre ; chaque durée utilise ses seules réussites mesurées."""
+    success = calls.loc[calls["status"].eq("success")]
+    result = {"Appels": len(calls), "Réussites": len(success)}
+    for status, label in [("rejected", "Rejets (%)"), ("error", "Pannes (%)")]:
+        result[label] = 100 * calls["status"].eq(status).mean() if len(calls) >= MIN_OBSERVATIONS else float("nan")
+    for column, label in [
+        ("latency_ms", "Latence médiane (ms)"),
+        ("inference_ms", "Inférence médiane (ms)"),
+        ("cpu_time_ms", "Temps CPU médian (ms)"),
+    ]:
+        values = pd.to_numeric(success[column], errors="coerce")
+        values = values.loc[values.notna() & values.ge(0) & values.lt(float("inf"))]
+        result[f"Mesures {column}"] = len(values)
+        result[label] = values.median() if len(values) >= MIN_OBSERVATIONS else float("nan")
+        if column == "latency_ms":
+            result["Latence P95 (ms)"] = values.quantile(.95) if len(values) >= MIN_OBSERVATIONS else float("nan")
+            result["P95 provisoire"] = 50 <= len(values) < 100
+    if len(calls):
+        dates = pd.to_datetime(calls["timestamp_utc"], utc=True, errors="raise").dt.tz_convert("Europe/Paris")
+        result["Début"] = dates.min().strftime("%d/%m/%Y %H:%M:%S")
+        result["Fin"] = dates.max().strftime("%d/%m/%Y %H:%M:%S")
+    else:
+        result.update({"Début": "—", "Fin": "—"})
+    result["Versions du modèle"] = ", ".join(sorted(success["model_version"].dropna().astype(str).unique())) or "—"
+    return result
+
+
+def analyser_performances(database: Path, nombre: int = 100) -> dict:
+    """Lit un instantané en lecture seule, indépendamment d'Evidently et du CSV.
+
+    Les fenêtres sont ancrées sur les appels les plus récents. Les mesures
+    absentes, négatives ou non finies sont exclues, jamais remplacées par zéro.
+    Aucun groupe ne chevauche un autre ; le plus ancien peut être incomplet.
+    """
+    if not 50 <= nombre <= 500:
+        raise ValueError("Choisir entre 50 et 500 appels par fenêtre.")
+    if not database.is_file():
+        raise FileNotFoundError("Base SQLite absente.")
+    with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(api_calls)")}
+        # Un historique antérieur à l'instrumentation reste lisible.
+        metrics = ", ".join(
+            name if name in columns else f"NULL AS {name}"
+            for name in ["latency_ms", "inference_ms", "cpu_time_ms"]
+        )
+        calls = pd.read_sql_query(
+            f"SELECT timestamp_utc,status,model_version,{metrics} FROM api_calls "
+            "WHERE operation='predict' ORDER BY timestamp_utc DESC,rowid DESC", connection,
+        )
+    if not calls["status"].isin(["success", "rejected", "error"]).all():
+        raise ValueError("Statut enregistré inconnu.")
+    current = mesures_performances(calls.iloc[:nombre])
+    previous = mesures_performances(calls.iloc[nombre:2 * nombre])
+    history = [mesures_performances(calls.iloc[start:start + nombre])
+               for start in range(0, len(calls), nombre)]
+    history = pd.DataFrame(history[::-1])
+    history.index = pd.RangeIndex(1, len(history) + 1, name="Groupe")
+    return {
+        "actuel": current, "precedent": previous, "historique": history,
+        "comparaison": current["Appels"] == previous["Appels"] == nombre,
+        "parametres": (str(database.resolve()), nombre),
+        "date": pd.Timestamp.now(tz="Europe/Paris").strftime("%d/%m/%Y à %H:%M:%S"),
+    }
+
+
 def rapport_drift(reference: pd.DataFrame, current: pd.DataFrame, categories: list,
                   distance: float, ks_global: float) -> pd.DataFrame:
     """Restitue les résultats Evidently et les null dans un tableau unique."""

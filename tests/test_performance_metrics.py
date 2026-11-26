@@ -1,7 +1,5 @@
 """Contrôle les mesures sans modifier les scores ni perdre l'ancien historique."""
 
-import math
-import json
 import sqlite3
 from contextlib import closing
 from time import perf_counter
@@ -44,7 +42,6 @@ def test_api_measurements_are_correlated_and_validation_precedes_inference(
             row = dict(connection.execute("SELECT * FROM api_calls").fetchone())
         assert str(UUID(row["request_id"])) == row["request_id"]
         assert row["cpu_time_ms"] >= 0
-        assert math.isfinite(row["cpu_percent"]) and row["cpu_percent"] >= 0
         assert row["execution_device"] == "cpu"
         if valid:
             assert row["request_id"] == result["request_id"]
@@ -79,7 +76,7 @@ def test_old_database_migration_preserves_rows(tmp_path):
     store = ApiCallStore(database)
     for _ in range(2):
         store.record(operation="schema", status="success", started_at="2026-11-21",
-                     started=perf_counter(), measurements={"cpu_time_ms": 1, "cpu_percent": 50})
+                     started=perf_counter(), measurements={"cpu_time_ms": 1})
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM api_calls").fetchone()[0] == 3
         assert connection.execute(
@@ -100,12 +97,7 @@ def measured_api(scorer, tmp_path, monkeypatch, client_data):
         result=scorer.model.predict(client_data),
     )
     with TestClient(main.create_app(scorer.model)) as api:
-        run = api.post("/measurement-runs", json={"name": "essai", "metadata": {"seed": 42}})
-        assert run.status_code == 200
-        payload = {
-            "request_id": request_id, "run_id": run.json()["run_id"], "latency_ms": 123.5,
-            "client_timestamp_utc": "2026-11-21T09:00:00+00:00", "client_sequence": 1,
-        }
+        payload = {"request_id": request_id, "latency_ms": 123.5}
         yield api, database, payload
 
 
@@ -116,19 +108,16 @@ def test_client_latency_is_saved_once_without_changing_prediction(measured_api):
     assert api.post("/measurements", json={**payload, "latency_ms": 999.0}).status_code == 409
     with closing(sqlite3.connect(database)) as connection:
         row = connection.execute(
-            "SELECT latency_ms,run_id,client_sequence,length(input_sha256),score "
+            "SELECT latency_ms,score "
             "FROM api_calls"
         ).fetchone()
-        assert row == (123.5, payload["run_id"], 1, 64, 0.25)
+        assert row == (123.5, 0.25)
         assert connection.execute("SELECT count(*) FROM api_calls").fetchone()[0] == 1
-        assert json.loads(connection.execute(
-            "SELECT metadata_json FROM measurement_runs"
-        ).fetchone()[0]) == {"seed": 42}
+
 
 
 @pytest.mark.parametrize("change", [
     {"latency_ms": -1.0}, {"latency_ms": True}, {"latency_ms": "123"},
-    {"client_sequence": 0}, {"client_timestamp_utc": "2026-11-21T09:00:00"},
     {"request_id": "invalide"},
 ])
 def test_invalid_client_measurement_is_rejected(measured_api, change):
@@ -138,10 +127,9 @@ def test_invalid_client_measurement_is_rejected(measured_api, change):
         assert connection.execute("SELECT latency_ms FROM api_calls").fetchone() == (None,)
 
 
-@pytest.mark.parametrize("field", ["run_id", "request_id"])
-def test_measurement_requires_existing_run_and_prediction(measured_api, field):
+def test_measurement_requires_existing_prediction(measured_api):
     api, _, payload = measured_api
-    assert api.post("/measurements", json={**payload, field: str(uuid4())}).status_code == 404
+    assert api.post("/measurements", json={**payload, "request_id": str(uuid4())}).status_code == 404
 
 
 def test_measurement_storage_failure_is_explicit(measured_api, monkeypatch):
@@ -152,5 +140,3 @@ def test_measurement_storage_failure_is_explicit(measured_api, monkeypatch):
 
     monkeypatch.setattr(ApiCallStore, "record_latency", fail)
     assert api.post("/measurements", json=payload).status_code == 503
-    monkeypatch.setattr(ApiCallStore, "create_run", fail)
-    assert api.post("/measurement-runs", json={"name": "essai", "metadata": {}}).status_code == 503

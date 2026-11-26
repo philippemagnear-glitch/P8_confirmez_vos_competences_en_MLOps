@@ -6,18 +6,16 @@ Il conserve les types du modèle, les valeurs manquantes en null et les zéros.
 L'API enregistre les appels et reçoit la latence mesurée par ce script pour
 compléter SQLite. Le CSV reste en lecture seule. Le script constitue un historique ;
 il ne mesure pas la charge maximale et ne crée pas de dérive artificielle.
---run-name nomme le lot dans SQLite ; request_id relie la latence à sa prédiction.
+request_id relie la latence à sa prédiction.
 Aucun fichier de mesures n'est exporté.
 """
 
 import argparse
-import platform
 import json
 import random
 import sys
 import time
 from pathlib import Path
-from datetime import datetime, timezone
 from urllib.request import Request, urlopen
 
 import pandas as pd
@@ -77,7 +75,6 @@ def main():
     parser.add_argument("--csv", type=Path, default=DEFAULT_CSV)
     parser.add_argument("--count", type=int, default=100)
     parser.add_argument("--seed", type=int, help="Fixer le tirage pour pouvoir le reproduire.")
-    parser.add_argument("--run-name", default="simulation", help="Nom du lot dans SQLite.")
     args = parser.parse_args()
     if args.count < 1:
         parser.error("--count doit être supérieur à zéro.")
@@ -91,17 +88,9 @@ def main():
         client = Client(args.url, verbose=False)
         schema = client.submit(api_name="/schema").result(timeout=60)
         clients = select_clients(args.csv, schema, args.count, rng)
-        run = post_json(args.url, "/measurement-runs", {
-            "name": args.run_name,
-            "metadata": {"count": args.count, "seed": args.seed,
-                         "source_csv": args.csv.name, "client_python": platform.python_version(),
-                         "client_system": platform.platform()},
-        })
-        print(f"Lot SQLite : {run['run_id']}")
         print(f"Envoi de {len(clients)} clients à {args.url}, modèle {schema['model_version']}.")
         for index, payload in enumerate(clients, start=1):
             attempted += 1
-            timestamp = datetime.now(timezone.utc).isoformat()
             started = time.perf_counter()
             try:
                 result = client.submit(client=payload, api_name="/predict").result(timeout=60)
@@ -112,9 +101,7 @@ def main():
             else:
                 successes += 1
                 post_json(args.url, "/measurements", {
-                    "request_id": result["request_id"], "run_id": run["run_id"],
-                    "latency_ms": latency_ms, "client_timestamp_utc": timestamp,
-                    "client_sequence": index,
+                    "request_id": result["request_id"], "latency_ms": latency_ms,
                 })
                 print(f"[{index}/{len(clients)}] Score={result['score']:.6f}, classe={result['prediction']}")
             if index < len(clients):

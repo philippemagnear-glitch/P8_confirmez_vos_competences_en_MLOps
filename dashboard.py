@@ -14,7 +14,7 @@ import pandas as pd
 import streamlit as st
 
 from monitoring import (
-    DB_PATH, TRAIN_PATH, analyser_appels, charger_reference, empreinte_reference,
+    DB_PATH, TRAIN_PATH, analyser_appels, analyser_performances, charger_reference, empreinte_reference,
 )
 
 SESSION_KEY = "rapport_scoring_evidently"
@@ -45,6 +45,15 @@ def main():
             help="Divisé par le nombre de tests numériques, score compris.",
         ))
         st.caption(f"Données de référence : {TRAIN_PATH.name}")
+    drift, performances = st.tabs(["Dérive et prédictions", "Performances"])
+    with drift:
+        afficher_drift(database, nombre, distance, ks)
+    with performances:
+        afficher_performances(database)
+
+
+def afficher_drift(database, nombre, distance, ks):
+    """Conserve la vue Evidently et son déclenchement indépendant."""
     button = st.empty()
     if button.button("Lancer l'analyse", type="primary", key="lancer"):
         button.button("Analyse en cours…", disabled=True, key="patienter")
@@ -159,6 +168,61 @@ def main():
                     label=column.replace("API", "appels API"), format="%.4g"
                 ) for column in columns if column != "Méthode"},
             )
+
+
+def afficher_performances(database):
+    """Affiche les agrégats SQLite ; seul le bouton actualise l'instantané."""
+    st.subheader("Évolution des performances")
+    nombre = int(st.number_input(
+        "Nombre d'appels par fenêtre", min_value=50, max_value=500, value=100, step=50,
+        help="Les temps utilisent seulement les prédictions réussies disposant d'une mesure.",
+        key="taille_performances",
+    ))
+    if st.button("Actualiser les performances"):
+        try:
+            st.session_state["performances"] = analyser_performances(database, nombre)
+            st.session_state.pop("erreur_performances", None)
+        except Exception as error:
+            LOGGER.error("Lecture des performances impossible (%s).", type(error).__name__)
+            st.session_state["erreur_performances"] = "Lecture impossible : vérifiez le chemin et le schéma SQLite. Le dernier résultat est conservé."
+    if st.session_state.get("erreur_performances"):
+        st.error(st.session_state["erreur_performances"])
+    report = st.session_state.get("performances")
+    if report is None:
+        st.info("Cliquez sur « Actualiser les performances » pour lire les mesures enregistrées.")
+        return
+    if report["parametres"] != (str(database.resolve()), nombre):
+        st.warning("Paramètres modifiés : actualisez les performances.")
+    current, previous = report["actuel"], report["precedent"]
+    st.caption(f"Lecture du {report['date']} · Périodes en heure de Paris.")
+    st.write(f"**Actuel :** {current['Appels']} appels · {current['Début']} → {current['Fin']}")
+    st.write(f"**Précédent :** {previous['Appels']} appels · {previous['Début']} → {previous['Fin']}")
+    if current["Appels"] == 0:
+        st.info("Aucune mesure disponible.")
+        return
+    if not report["comparaison"]:
+        st.info("Deux fenêtres complètes sont nécessaires pour afficher les écarts.")
+    for title, metrics in [
+        ("Temps de réponse", [("Latence médiane (ms)", "latency_ms"), ("Latence P95 (ms)", "latency_ms")]),
+        ("Calcul et ressources", [("Inférence médiane (ms)", "inference_ms"), ("Temps CPU médian (ms)", "cpu_time_ms")]),
+        ("Fiabilité", [("Rejets (%)", None), ("Pannes (%)", None)]),
+    ]:
+        st.subheader(title)
+        for column, (label, measurement) in zip(st.columns(2), metrics):
+            with column:
+                value, old = current[label], previous[label]
+                st.metric(label, "Données insuffisantes" if pd.isna(value) else f"{value:.2f}")
+                if report["comparaison"] and pd.notna(value) and pd.notna(old):
+                    unit = "points" if measurement is None else "ms"
+                    difference = round(value - old, 2)
+                    text = "0,00" if difference == 0 else f"{difference:+.2f}".replace(".", ",")
+                    st.caption(f"Différence avec les {previous['Appels']} appels précédents : {text} {unit}.")
+                count = current[f"Mesures {measurement}"] if measurement else current["Appels"]
+                st.caption(f"{count} mesure(s) utilisée(s)" if measurement else f"{count} appels analysés")
+                if label == "Latence P95 (ms)" and 50 <= count < 100:
+                    st.caption("P95 provisoire : moins de 100 mesures.")
+    if sum(current[f"Mesures {name}"] for name in ["latency_ms", "inference_ms", "cpu_time_ms"]) == 0:
+        st.info("Aucune mesure de performance disponible sur les appels actuels.")
 
 
 if __name__ == "__main__":

@@ -143,25 +143,22 @@ Pour alimenter SQLite, avec l'API démarrée :
 ```powershell
 python scripts/simuler_appels_api.py
 python scripts/simuler_appels_api.py --count 100 --seed 42
-python scripts/simuler_appels_api.py --count 300 --seed 42 --run-name essai-sans-optimisation
+python scripts/simuler_appels_api.py --count 300 --seed 42
 ```
 
 Le script tire 100 lignes distinctes du CSV de test préparé, préserve types, `null` et zéros,
 puis envoie les appels espacés de 0,2 à 1 seconde. `--csv` et `--url` changent les sources et la destination.
 Les clients peuvent revenir entre lots ; une panne réseau arrête le lot. Ce n'est pas un test de charge.
 
-Toutes les mesures sont conservées dans SQLite, sans export CSV. `--run-name` nomme
-un lot dans `measurement_runs`, avec son tirage et sa configuration client.
+Toutes les mesures sont conservées dans la table SQLite `api_calls`, sans export CSV.
 Après chaque réussite, le script transmet la latence complète à `POST /measurements`,
-avec le `request_id` et le lot créé par `POST /measurement-runs`. L'envoi de la mesure
+avec le `request_id` de la prédiction. L'envoi de la mesure
 est exclu de cette latence. Une erreur de transmission arrête le script sans rejouer la prédiction.
 Les appels manuels restent enregistrés mais n'ont pas cette mesure côté client.
 Les rejets et pannes restent tracés côté serveur, sans latence client corrélée.
-SQLite conserve également `inference_ms` (imputation et LightGBM), `cpu_time_ms`,
-`cpu_percent` et `execution_device`. La migration préserve les anciennes lignes, dont
-les nouvelles mesures restent nulles. `cpu_percent` mesure le CPU du processus pendant
-le traitement : 100 % représente un cœur, et plusieurs threads peuvent dépasser 100 %.
-Ce n'est pas l'utilisation CPU globale de la machine. Le backend CPU actuel n'utilise
+SQLite conserve également `inference_ms` (imputation et LightGBM), `cpu_time_ms`
+et `execution_device`. Le temps CPU concerne le processus serveur pendant le traitement,
+pas l'utilisation CPU globale de la machine. Le backend CPU actuel n'utilise
 pas le GPU. Mesures et limites de comparaison : [baseline avant optimisation](docs/baseline_avant_optimisation.md).
 
 ## Historique SQLite et monitoring
@@ -177,7 +174,7 @@ le stockage intégral est destiné aux données synthétiques du TP. Bases et da
 
 ```powershell
 python -m sqlite3 data/api_calls.sqlite3 "SELECT operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
-python -m sqlite3 data/api_calls.sqlite3 "SELECT r.name, count(*), avg(c.latency_ms), avg(c.inference_ms) FROM api_calls c JOIN measurement_runs r USING(run_id) GROUP BY r.run_id;"
+python -m sqlite3 data/api_calls.sqlite3 "SELECT timestamp_utc, inference_ms, latency_ms, cpu_time_ms FROM api_calls WHERE operation='predict' ORDER BY rowid DESC LIMIT 5;"
 ```
 
 Le bouton **Lancer l'analyse** compare les réussites de même version et seuil, parmi les
@@ -204,6 +201,20 @@ La première préparation peut prendre plusieurs minutes. Le cache mémoire dép
 et du modèle ; un changement impose son recalcul. Les calculs ne repartent qu'au clic.
 Les résultats restent dans la session et peuvent disparaître au rechargement ; une erreur conserve
 le dernier succès. Aucun planificateur ni export automatique n'est configuré.
+
+## Suivi des performances
+
+L'onglet **Performances** lit SQLite au clic sur **Actualiser les performances**,
+sans charger le dataset de référence ni relancer Evidently. Choisir entre **50 et 500
+appels par fenêtre** (100 par défaut). Les derniers appels sont comparés aux précédents,
+sans chevauchement. Les écarts exigent deux fenêtres complètes.
+Les rejets et pannes utilisent tous les appels `/predict` ; les médianes et le P95
+utilisent uniquement les réussites avec une mesure valide. Chaque carte affiche son effectif.
+Sous 50 observations, l'indicateur est indisponible ; entre 50 et 99 latences, le P95
+est provisoire. Les courbes suivent des groupes d'appels, pas des intervalles de temps égaux.
+Le tableau détaille les périodes, versions et effectifs. Les anciennes mesures absentes
+ne sont pas remplacées par zéro. Pour démontrer un gain, comparer les mêmes clients
+sans profiler, dans les mêmes conditions ; ces courbes seules ne prouvent pas une optimisation.
 
 ## Tests et pipeline CI/CD
 
