@@ -18,6 +18,10 @@ Le modèle, son prétraitement, son seuil et ses paramètres n'ont pas été mod
 
 Pour réaliser un futur lot comparable, environnement virtuel activé :
 
+Les commandes ci-dessous sont celles du protocole historique. Avec le code actuel,
+l'API utilise ONNX ; ces commandes seules ne reproduisent donc pas le moteur de départ.
+Voir le [rapport d'optimisation](rapport_optimisations.md) pour les changements et leurs limites.
+
 ```powershell
 # Terminal serveur ; choisir un port libre.
 $env:GRADIO_SERVER_PORT = '17861'
@@ -78,7 +82,8 @@ une modification à la fois. Les chiffres ci-dessus ne constituent pas une amél
 ## Conservation et comparaison future
 
 - SQLite local : `data/api_calls.sqlite3`, colonnes ajoutées sans effacer l'historique.
-- Sauvegarde préalable : `data/api_calls.sqlite3.before-baseline`.
+- La sauvegarde temporaire `data/api_calls.sqlite3.before-baseline` a depuis été supprimée
+  lors du nettoyage ; elle ne constitue plus une source disponible.
 - `api_calls` : entrées, résultats, temps serveur, CPU et latence client sur la même ligne.
 - Les 300 latences initiales ont été importées par `request_id`, sans nouvelle prédiction.
 - Les conditions et résultats de la baseline sont documentés dans ce rapport.

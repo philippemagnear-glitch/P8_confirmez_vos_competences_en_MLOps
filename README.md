@@ -123,7 +123,7 @@ le vrai modèle et sa référence numérique figée, sans modifier le score ni l
 pour masquer un écart. Le test réel et le déploiement doivent confirmer la compatibilité ONNX.
 Les essais locaux ont montré une préparation médiane de 0,84 ms et une inférence de 0,21 ms ;
 100 clients communs LightGBM/ONNX ont conservé leur décision avec des écarts de score < 1e-6.
-Ces observations ne remplacent pas une évaluation métier sur des données étiquetées.
+Protocole, résultats et limites : [rapport d'optimisation](docs/rapport_optimisations.md).
 
 ## Docker et CI/CD
 
