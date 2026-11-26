@@ -14,7 +14,7 @@ def test_health_responds_without_prediction(scorer, tmp_path, monkeypatch):
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json() == {"status": "ok", "model_loaded": True}
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 def test_model_loading_failure_prevents_startup(monkeypatch):

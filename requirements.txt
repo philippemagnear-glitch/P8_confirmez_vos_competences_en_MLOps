@@ -1,8 +1,14 @@
 # API et pipeline de scoring
+numpy==2.5.4
 pandas==3.0.5
 mlflow==3.16.0
 scikit-learn==1.9.0
 lightgbm==4.7.0
+# Conversion du pipeline entraîné et inférence ONNX sur CPU
+onnx==1.23.2
+onnxruntime==1.32.0
+skl2onnx==1.20.0
+onnxmltools==1.16.0
 gradio==6.31.0
 gradio-client==2.7.2
 fastapi==0.162.0
@@ -14,3 +20,5 @@ streamlit==1.67.0
 ipykernel==7.4.0
 pytest==9.2.0
 pytest-cov==7.1.0
+# Visualisation locale des profils cProfile
+snakeviz==2.2.2
