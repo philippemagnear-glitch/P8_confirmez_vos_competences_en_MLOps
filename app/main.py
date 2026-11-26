@@ -3,17 +3,19 @@
 import json
 import logging
 import os
+import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
 from time import perf_counter, process_time
-from uuid import uuid4
+from typing import Annotated
+from uuid import UUID, uuid4
 
 # Désactive la télémétrie Gradio avant son import.
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 import gradio as gr
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, HTTPException
 
 from app.prediction import CreditScoringModel, InputValidationError
 from app.storage import ApiCallStore
@@ -216,6 +218,47 @@ def create_app(model: CreditScoringModel | None = None) -> FastAPI:
         model = CreditScoringModel()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     demo = create_demo(model).queue()
+    store = ApiCallStore()
+
+    @app.post("/measurement-runs")
+    def create_run(
+        name: Annotated[str, Body(min_length=1, max_length=120)],
+        metadata: Annotated[dict, Body()],
+    ):
+        """Identifie un lot de mesures, sans créer d'appel de scoring supplémentaire."""
+        try:
+            return {"run_id": store.create_run(name, metadata)}
+        except (OSError, sqlite3.Error) as error:
+            LOGGER.error("Création du lot impossible (%s).", type(error).__name__)
+            raise HTTPException(503, "Stockage SQLite indisponible.") from None
+        except (TypeError, ValueError):
+            raise HTTPException(422, "Métadonnées JSON invalides.") from None
+
+    @app.post("/measurements")
+    def save_latency(
+        request_id: Annotated[UUID, Body()],
+        run_id: Annotated[UUID, Body()],
+        latency_ms: Annotated[float, Body(strict=True, ge=0, allow_inf_nan=False)],
+        client_timestamp_utc: Annotated[datetime, Body()],
+        client_sequence: Annotated[int, Body(strict=True, ge=1)],
+    ):
+        """Ajoute la latence côté client à une prédiction déjà enregistrée."""
+        if client_timestamp_utc.utcoffset() is None:
+            raise HTTPException(422, "La date doit préciser son fuseau horaire.")
+        try:
+            store.record_latency(
+                request_id=str(request_id), run_id=str(run_id), latency_ms=latency_ms,
+                client_timestamp_utc=client_timestamp_utc.astimezone(timezone.utc).isoformat(),
+                client_sequence=client_sequence,
+            )
+        except KeyError as error:
+            raise HTTPException(404, error.args[0]) from None
+        except RuntimeError as error:
+            raise HTTPException(409, str(error)) from None
+        except (OSError, sqlite3.Error) as error:
+            LOGGER.error("Mesure non enregistrée (%s).", type(error).__name__)
+            raise HTTPException(503, "Stockage SQLite indisponible.") from None
+        return {"status": "saved", "request_id": str(request_id)}
 
     @app.get("/health")
     def health():

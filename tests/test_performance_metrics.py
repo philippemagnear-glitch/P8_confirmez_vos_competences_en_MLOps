@@ -1,13 +1,15 @@
 """Contrôle les mesures sans modifier les scores ni perdre l'ancien historique."""
 
 import math
+import json
 import sqlite3
 from contextlib import closing
 from time import perf_counter
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import gradio as gr
 import pytest
+from fastapi.testclient import TestClient
 
 from app import main
 from app.storage import ApiCallStore
@@ -83,3 +85,72 @@ def test_old_database_migration_preserves_rows(tmp_path):
         assert connection.execute(
             "SELECT inference_ms,cpu_time_ms FROM api_calls WHERE request_id='historique'"
         ).fetchone() == (None, None)
+
+
+@pytest.fixture
+def measured_api(scorer, tmp_path, monkeypatch, client_data):
+    """Une prédiction déjà enregistrée, puis une API HTTP sur une base isolée."""
+    database = tmp_path / "measurements.sqlite3"
+    monkeypatch.setenv("API_CALLS_DB_PATH", str(database))
+    monkeypatch.setattr(main, "DEMO_CSV", tmp_path / "absent.csv")
+    request_id = str(uuid4())
+    ApiCallStore(database).record(
+        operation="predict", status="success", started_at="2026-11-21T09:00:00+00:00",
+        started=perf_counter(), request_id=request_id, inputs=client_data,
+        result=scorer.model.predict(client_data),
+    )
+    with TestClient(main.create_app(scorer.model)) as api:
+        run = api.post("/measurement-runs", json={"name": "essai", "metadata": {"seed": 42}})
+        assert run.status_code == 200
+        payload = {
+            "request_id": request_id, "run_id": run.json()["run_id"], "latency_ms": 123.5,
+            "client_timestamp_utc": "2026-11-21T09:00:00+00:00", "client_sequence": 1,
+        }
+        yield api, database, payload
+
+
+def test_client_latency_is_saved_once_without_changing_prediction(measured_api):
+    api, database, payload = measured_api
+    for _ in range(2):
+        assert api.post("/measurements", json=payload).status_code == 200
+    assert api.post("/measurements", json={**payload, "latency_ms": 999.0}).status_code == 409
+    with closing(sqlite3.connect(database)) as connection:
+        row = connection.execute(
+            "SELECT latency_ms,run_id,client_sequence,length(input_sha256),score "
+            "FROM api_calls"
+        ).fetchone()
+        assert row == (123.5, payload["run_id"], 1, 64, 0.25)
+        assert connection.execute("SELECT count(*) FROM api_calls").fetchone()[0] == 1
+        assert json.loads(connection.execute(
+            "SELECT metadata_json FROM measurement_runs"
+        ).fetchone()[0]) == {"seed": 42}
+
+
+@pytest.mark.parametrize("change", [
+    {"latency_ms": -1.0}, {"latency_ms": True}, {"latency_ms": "123"},
+    {"client_sequence": 0}, {"client_timestamp_utc": "2026-11-21T09:00:00"},
+    {"request_id": "invalide"},
+])
+def test_invalid_client_measurement_is_rejected(measured_api, change):
+    api, database, payload = measured_api
+    assert api.post("/measurements", json={**payload, **change}).status_code == 422
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT latency_ms FROM api_calls").fetchone() == (None,)
+
+
+@pytest.mark.parametrize("field", ["run_id", "request_id"])
+def test_measurement_requires_existing_run_and_prediction(measured_api, field):
+    api, _, payload = measured_api
+    assert api.post("/measurements", json={**payload, field: str(uuid4())}).status_code == 404
+
+
+def test_measurement_storage_failure_is_explicit(measured_api, monkeypatch):
+    api, _, payload = measured_api
+
+    def fail(*args, **kwargs):
+        raise sqlite3.OperationalError("indisponible")
+
+    monkeypatch.setattr(ApiCallStore, "record_latency", fail)
+    assert api.post("/measurements", json=payload).status_code == 503
+    monkeypatch.setattr(ApiCallStore, "create_run", fail)
+    assert api.post("/measurement-runs", json={"name": "essai", "metadata": {}}).status_code == 503

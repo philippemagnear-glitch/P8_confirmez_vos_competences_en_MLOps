@@ -143,16 +143,21 @@ Pour alimenter SQLite, avec l'API démarrée :
 ```powershell
 python scripts/simuler_appels_api.py
 python scripts/simuler_appels_api.py --count 100 --seed 42
-python scripts/simuler_appels_api.py --count 300 --seed 42 --metrics-output tests/reports/performance/baseline.csv
+python scripts/simuler_appels_api.py --count 300 --seed 42 --run-name essai-sans-optimisation
 ```
 
 Le script tire 100 lignes distinctes du CSV de test préparé, préserve types, `null` et zéros,
 puis envoie les appels espacés de 0,2 à 1 seconde. `--csv` et `--url` changent les sources et la destination.
 Les clients peuvent revenir entre lots ; une panne réseau arrête le lot. Ce n'est pas un test de charge.
 
-L'option `--metrics-output` conserve les latences (hors pauses), scores, identifiants
-et empreintes des entrées, sans recopier les données client.
-SQLite conserve séparément `inference_ms` (imputation et LightGBM), `cpu_time_ms`,
+Toutes les mesures sont conservées dans SQLite, sans export CSV. `--run-name` nomme
+un lot dans `measurement_runs`, avec son tirage et sa configuration client.
+Après chaque réussite, le script transmet la latence complète à `POST /measurements`,
+avec le `request_id` et le lot créé par `POST /measurement-runs`. L'envoi de la mesure
+est exclu de cette latence. Une erreur de transmission arrête le script sans rejouer la prédiction.
+Les appels manuels restent enregistrés mais n'ont pas cette mesure côté client.
+Les rejets et pannes restent tracés côté serveur, sans latence client corrélée.
+SQLite conserve également `inference_ms` (imputation et LightGBM), `cpu_time_ms`,
 `cpu_percent` et `execution_device`. La migration préserve les anciennes lignes, dont
 les nouvelles mesures restent nulles. `cpu_percent` mesure le CPU du processus pendant
 le traitement : 100 % représente un cœur, et plusieurs threads peuvent dépasser 100 %.
@@ -172,6 +177,7 @@ le stockage intégral est destiné aux données synthétiques du TP. Bases et da
 
 ```powershell
 python -m sqlite3 data/api_calls.sqlite3 "SELECT operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
+python -m sqlite3 data/api_calls.sqlite3 "SELECT r.name, count(*), avg(c.latency_ms), avg(c.inference_ms) FROM api_calls c JOIN measurement_runs r USING(run_id) GROUP BY r.run_id;"
 ```
 
 Le bouton **Lancer l'analyse** compare les réussites de même version et seuil, parmi les

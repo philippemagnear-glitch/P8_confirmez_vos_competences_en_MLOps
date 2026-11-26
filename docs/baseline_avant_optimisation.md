@@ -1,7 +1,7 @@
 # Baseline avant optimisation
 
 Cette mesure est le point de départ des futures expériences, pas une version optimisée.
-Le tag Git `baseline-avant-optimisation` identifiera le code instrumenté et le modèle utilisés.
+Le tag Git `baseline-avant-optimisation` identifie le code instrumenté et le modèle utilisés.
 Le modèle, son prétraitement, son seuil et ses paramètres n'ont pas été modifiés.
 
 ## Protocole réalisé
@@ -16,19 +16,20 @@ Le modèle, son prétraitement, son seuil et ses paramètres n'ont pas été mod
 - Le score reçu par le client correspond au score enregistré pour les 300 appels.
 - Les **494 lignes historiques** sont conservées ; leurs nouvelles mesures restent nulles.
 
-Commande utilisée, environnement virtuel activé :
+Pour réaliser un futur lot comparable, environnement virtuel activé :
 
 ```powershell
 # Terminal serveur ; choisir un port libre.
 $env:GRADIO_SERVER_PORT = '17861'
 python -m app.main
 # Dans un autre terminal :
-python scripts/simuler_appels_api.py --url http://127.0.0.1:17861 --count 300 --seed 42 --metrics-output tests/reports/performance/baseline.csv
+python scripts/simuler_appels_api.py --url http://127.0.0.1:17861 --count 300 --seed 42 --run-name essai-sans-optimisation
 ```
 
 Le serveur temporaire a été arrêté après la mesure. Pour un lancement habituel, le port par défaut
 reste 7860. Le modèle doit rester identique, ainsi que le CSV, pour reproduire le tirage.
-Ne pas écraser `baseline.csv` lors d'une expérience : choisir un autre nom de sortie.
+Chaque exécution crée un lot distinct dans SQLite. Les 300 appels de départ ont déjà été
+mesurés : il n'est pas nécessaire de les rejouer.
 
 ## Configuration de départ
 
@@ -80,17 +81,31 @@ une modification à la fois. Les chiffres ci-dessus ne constituent pas une amél
 
 - SQLite local : `data/api_calls.sqlite3`, colonnes ajoutées sans effacer l'historique.
 - Sauvegarde préalable : `data/api_calls.sqlite3.before-baseline`.
-- CSV client : `tests/reports/performance/baseline.csv`.
-- Mesures rapprochées par `request_id` : `tests/reports/performance/baseline_joined.csv`.
-- Valeurs exactes et versions : `tests/reports/performance/summary.json`.
+- `api_calls` : entrées, résultats, temps serveur, CPU et latence client sur la même ligne.
+- `measurement_runs` : identifiant et nom du lot, configuration et métadonnées JSON.
+- Lot `baseline-avant-optimisation` : les 300 latences initiales ont été importées par
+  `request_id`, après vérification des scores et des empreintes d'entrée, sans nouvelle prédiction.
+  Les valeurs exactes du bilan initial sont conservées dans ses métadonnées.
 - Les données détaillées restent locales, ignorées par Git. Ce rapport agrégé est versionné.
 
-Empreinte du CSV client :
+Le tag publié reste inchangé : il contient la première instrumentation. Le commit suivant
+centralise ses mesures dans SQLite et supprime les exports devenus redondants.
+L'API reçoit désormais la latence via `POST /measurements`, après réception du score.
+Un envoi identique est accepté sans doublon ; une tentative de remplacement est refusée.
+En cas d'échec du stockage de cette mesure, le script s'arrête ; la prédiction reste conservée.
+
+Empreinte du fichier de mesures initial, conservée pour la traçabilité de l'import :
 `3a9bbb747ba9fa09e74af440003d79b2d90ce4d08fc314d6fdc51bfc2e513d5b`.
-Chaque ligne conserve l'empreinte `input_sha256`, sans recopier les entrées dans le CSV.
+Chaque ligne SQLite du lot conserve l'empreinte `input_sha256`.
 Pour une future comparaison, rapprocher les lots par cette empreinte, pas par les identifiants
 de requête qui changent à chaque appel. Comparer latences, inférences, CPU, écarts de score
 et changements de classe, dans des conditions matérielles et logicielles comparables.
+
+Consultation des mesures, depuis la racine :
+
+```powershell
+python -m sqlite3 data/api_calls.sqlite3 "SELECT r.name,c.request_id,c.inference_ms,c.latency_ms,c.cpu_percent FROM api_calls c JOIN measurement_runs r USING(run_id) WHERE r.name='baseline-avant-optimisation' ORDER BY c.client_sequence LIMIT 5;"
+```
 
 T08 conserve le score **0.9206103043784433**, classe **1**, seuil **0,5**, pour son client synthétique.
 Ce contrôle et l'empreinte du modèle attestent de l'absence de changement de ce modèle ; sans
