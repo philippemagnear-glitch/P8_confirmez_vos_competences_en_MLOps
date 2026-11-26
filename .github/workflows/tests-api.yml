@@ -116,27 +116,30 @@ jobs:
       - name: Vérifier la santé des deux services et la lecture SQLite du dashboard
         run: |
           python - <<'PY'
-          import json
+          import sys
           import time
           from urllib.request import urlopen
 
-          for url in ("http://127.0.0.1:7860/health", "http://127.0.0.1:8501/_stcore/health"):
-              deadline = time.monotonic() + 60
-              while True:
-                  try:
-                      with urlopen(url, timeout=3) as response:
-                          body = response.read()
-                          assert response.status == 200
-                          if url.endswith("/health") and ":7860/" in url:
-                              assert json.loads(body) == {"status": "ok", "model_loaded": True}
-                      break
-                  # Un port publié peut réinitialiser la connexion avant que
-                  # Streamlit ait fini son démarrage : réessayer jusqu'au délai.
-                  except OSError:
-                      if time.monotonic() >= deadline:
-                          raise
-                      time.sleep(1)
-              print("Service prêt :", url)
+          sys.path.insert(0, "tests")
+          from verifier_api_deployee import call_endpoint
+
+          result = call_endpoint("http://127.0.0.1:7860", "health", [], time.monotonic() + 60)
+          assert result == {"status": "ok", "model_loaded": True}
+          print("Gradio : /health vérifié via le protocole POST/SSE")
+
+          url = "http://127.0.0.1:8501/_stcore/health"
+          deadline = time.monotonic() + 60
+          while True:
+              try:
+                  with urlopen(url, timeout=3) as response:
+                      assert response.status == 200
+                  break
+              # Streamlit peut réinitialiser la connexion pendant son démarrage.
+              except OSError:
+                  if time.monotonic() >= deadline:
+                      raise
+                  time.sleep(1)
+          print("Service prêt :", url)
           PY
           docker exec scoring-dashboard-ci python -c "from app.monitoring.analysis import DB_PATH, lire_fenetres; calls, _ = lire_fenetres(DB_PATH, 100); assert calls.status.eq('success').any(), 'Aucune prédiction lisible dans SQLite'; print('Dashboard : SQLite lisible,', len(calls), 'prédiction(s)')"
           docker exec credit-scoring-ci python -c "import os,sqlite3; from contextlib import closing; c=sqlite3.connect(os.environ['API_CALLS_DB_PATH']); r=c.execute(\"SELECT inference_ms,cpu_time_ms,execution_device FROM api_calls WHERE operation='predict' AND status='success' ORDER BY rowid DESC LIMIT 1\").fetchone(); c.close(); assert r and all(v is not None and v>=0 for v in r[:2]) and r[2] in ('cpu','gpu','cuda'), 'Mesures de performance absentes ou invalides'; print('Mesures inference/CPU/backend:',r)"

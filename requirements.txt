@@ -11,6 +11,7 @@ skl2onnx==1.20.0
 onnxmltools==1.16.0
 gradio==6.31.0
 gradio-client==2.7.2
+# Serveur interne de Gradio : versions conservées pour la reproductibilité
 fastapi==0.162.0
 uvicorn==0.54.0
 # Analyse et dashboard

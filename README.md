@@ -1,6 +1,6 @@
 ﻿# Scoring crédit et monitoring — Projet 8 MLOps
 
-Application Gradio/FastAPI de scoring crédit, avec historique SQLite et dashboard Streamlit/Evidently.
+Application Gradio de scoring crédit, avec historique SQLite et dashboard Streamlit/Evidently.
 Le modèle entraîné est **LightGBM `credit_scoring_lightgbm`, version 4** ; les prédictions utilisent **ONNX Runtime sur CPU**.
 
 ## Fonctionnement
@@ -40,8 +40,8 @@ python -m streamlit run app/monitoring/dashboard.py --server.address 127.0.0.1 -
 
 Prédictions : **http://localhost:7860** ; dashboard : **http://localhost:8501**. Les boutons ouvrent un nouvel onglet.
 Arrêt : `Ctrl+C`. Aucune authentification n'est configurée.
-`/health` vérifie la disponibilité de l'API après chargement du modèle, sans tester de
-prédiction ni SQLite ; `/_stcore/health` est le contrôle de santé propre à Streamlit.
+L'endpoint Gradio `/health` confirme la disponibilité après chargement du modèle, sans prédiction ni accès SQLite.
+Il s'appelle avec le client Gradio, pas avec `GET /health` ; Streamlit conserve `GET /_stcore/health`.
 
 | Variable | Valeur par défaut | Usage |
 |---|---|---|
@@ -57,11 +57,12 @@ Les liens configurables doivent être accessibles au navigateur ; ils ne changen
 
 ## Utilisation et mesures
 
-L'interface accepte un JSON et peut proposer 50 clients du CSV de démonstration, si présent.
-Les endpoints Gradio `/schema` et `/predict` sont décrits dans **Use via API**.
-Il ne s'agit pas d'un endpoint REST `POST /predict` : Gradio utilise un POST puis un flux SSE.
+L'interface accepte un JSON et propose jusqu'à 50 clients si le CSV de démonstration est présent.
+**Use via API** décrit `/predict`, `/schema`, `/health` et `/measurements`.
+Tous utilisent le protocole Gradio (POST puis flux SSE), pas des routes REST directes.
+`/health` et `/measurements` sont déclarés hors file (`queue=False`) ; FastAPI reste interne à Gradio.
 Une entrée invalide produit une `AppError` explicite ; une panne interne reste générique.
-La réponse contient `score`, `prediction`, `threshold`, `model_name`, `model_version`, `request_id`.
+La prédiction retourne `score`, `prediction`, `threshold`, `model_name`, `model_version`, `request_id`.
 Contrat détaillé : [plan des tests API](docs/plan_tests_api_scoring.md).
 
 API démarrée, depuis un autre terminal :
@@ -80,11 +81,12 @@ Les anciens moteurs inconnus restent à NULL ; les entrées des erreurs sont exc
 Une erreur de stockage est journalisée sans bloquer la réponse de scoring.
 
 Les mesures sont `cpu_time_ms`, `preparation_ms`, `inference_ms`, `other_elapsed_ms`, `latency_ms`.
-L'inférence comprend l'imputation et la classification ONNX. Le script transmet la latence
-via `POST /measurements`, corrélée par `request_id` ; cet envoi, le démarrage et les pauses
-sont exclus. Les appels manuels n'ont pas cette mesure client. Les autres délais sont le reste
-calculé, stockage inclus ; le CPU mesure le processus serveur et reste indépendant.
+L'inférence comprend l'imputation et la classification ONNX. `/measurements` reçoit la latence via Gradio,
+liée par `request_id` ; son envoi, le démarrage et les pauses sont exclus. Les appels manuels n'ont pas cette latence.
+Les autres délais sont le reste calculé, stockage inclus ; le CPU mesure le processus serveur et reste indépendant.
 Les médianes des étapes ne s'additionnent pas. Aucun export CSV n'est créé.
+`/measurements` reçoit un objet `measurement` avec `request_id` (UUID) et `latency_ms` (nombre fini ≥ 0).
+Une erreur produit `AppError` ; renvoyer la même mesure est accepté, la remplacer par une autre est refusé.
 
 ## Dashboard
 

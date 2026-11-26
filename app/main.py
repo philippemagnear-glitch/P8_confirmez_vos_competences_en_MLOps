@@ -2,10 +2,10 @@
 
 import json
 import logging
+import math
 import os
 import sqlite3
 from pathlib import Path
-from typing import Annotated
 from uuid import UUID
 
 # Désactive la télémétrie Gradio avant son import.
@@ -13,7 +13,6 @@ os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 import gradio as gr
 import pandas as pd
-from fastapi import Body, FastAPI, HTTPException
 
 from app.prediction import CreditScoringModel, InputValidationError
 from app.scoring_service import process_api_call
@@ -79,6 +78,42 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
     def get_schema() -> dict:
         """Retourne les variables attendues, leurs types et leur caractère obligatoire."""
         return handle_api_call("schema")
+
+    def health() -> dict:
+        """Confirme que Gradio répond après chargement du modèle, sans prédiction."""
+        return {"status": "ok", "model_loaded": True}
+
+    def save_latency(measurement: dict) -> dict:
+        """Enregistre request_id et latency_ms pour une prédiction réussie existante."""
+        if not isinstance(measurement, dict):
+            raise gr.Error("La mesure doit être un objet JSON.", print_exception=False)
+        request_id = measurement.get("request_id")
+        try:
+            if not isinstance(request_id, str):
+                raise ValueError
+            request_id = str(UUID(request_id))
+        except ValueError:
+            raise gr.Error("request_id doit être un UUID valide.", print_exception=False) from None
+        latency_ms = measurement.get("latency_ms")
+        try:
+            valid_latency = (
+                type(latency_ms) in (int, float)
+                and math.isfinite(latency_ms) and latency_ms >= 0
+            )
+        except OverflowError:
+            valid_latency = False
+        if not valid_latency:
+            raise gr.Error(
+                "latency_ms doit être un nombre fini positif ou nul.", print_exception=False,
+            )
+        try:
+            call_store.record_latency(request_id=request_id, latency_ms=latency_ms)
+        except (KeyError, RuntimeError) as error:
+            raise gr.Error(error.args[0], print_exception=False) from None
+        except (OSError, sqlite3.Error) as error:
+            LOGGER.error("Mesure non enregistrée (%s).", type(error).__name__)
+            raise gr.Error("Stockage SQLite indisponible.", print_exception=False) from None
+        return {"status": "saved", "request_id": request_id}
 
     def select_client(client_id: str) -> tuple[str, None]:
         if client_id not in demo_clients:
@@ -172,57 +207,25 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
             concurrency_limit=1,
         )
         gr.api(get_schema, api_name="schema")
+        gr.api(health, api_name="health", queue=False)
+        gr.api(
+            save_latency, api_name="measurements", queue=False,
+            api_description=(
+                "Reçoit un objet JSON measurement contenant request_id (UUID) et "
+                "latency_ms (nombre fini positif ou nul). Complète une prédiction "
+                "réussie déjà enregistrée. Renvoyer la même mesure est accepté ; "
+                "une valeur différente pour cet appel est refusée. "
+                "Une mesure invalide, un appel absent ou une erreur SQLite produit AppError."
+            ),
+        )
 
     return demo
 
 
-def create_app(model: CreditScoringModel | None = None) -> FastAPI:
-    """Expose la santé et Gradio après chargement réussi du modèle.
-
-    /health confirme que le serveur répond et que le modèle a été chargé.
-    Il ne teste ni une prédiction, ni SQLite, ni le dashboard.
-    """
-    if model is None:
-        model = CreditScoringModel()
-    app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
-    demo = create_demo(model).queue()
-    store = ApiCallStore()
-
-    @app.post("/measurements")
-    def save_latency(
-        request_id: Annotated[UUID, Body()],
-        latency_ms: Annotated[float, Body(strict=True, ge=0, allow_inf_nan=False)],
-    ):
-        """Ajoute la latence côté client à une prédiction déjà enregistrée."""
-        try:
-            store.record_latency(
-                request_id=str(request_id), latency_ms=latency_ms,
-            )
-        except KeyError as error:
-            raise HTTPException(404, error.args[0]) from None
-        except RuntimeError as error:
-            raise HTTPException(409, str(error)) from None
-        except (OSError, sqlite3.Error) as error:
-            LOGGER.error("Mesure non enregistrée (%s).", type(error).__name__)
-            raise HTTPException(503, "Stockage SQLite indisponible.") from None
-        return {"status": "saved", "request_id": str(request_id)}
-
-    @app.get("/health")
-    def health():
-        return {"status": "ok", "model_loaded": True}
-
-    # Déclarer /health avant le montage à la racine, qui reçoit les autres routes.
-    return gr.mount_gradio_app(
-        app, demo, path="/", footer_links=["api"], run_history=False,
-    )
-
-
 if __name__ == "__main__":
-    import uvicorn
-
     logging.basicConfig(level=logging.INFO)
-    uvicorn.run(
-        create_app(),
-        host=os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1"),
-        port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
+    create_demo().queue().launch(
+        server_name=os.environ.get("GRADIO_SERVER_NAME", "127.0.0.1"),
+        server_port=int(os.environ.get("GRADIO_SERVER_PORT", "7860")),
+        share=False, footer_links=["api"], run_history=False,
     )

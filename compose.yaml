@@ -10,9 +10,19 @@ services:
     volumes:
       - ./data:/app/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/health', timeout=3).close()"]
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          from gradio_client import Client
+          client = Client("http://127.0.0.1:7860", verbose=False, httpx_kwargs={"trust_env": False})
+          try:
+              assert client.submit(api_name="/health").result(timeout=5) == {"status": "ok", "model_loaded": True}
+          finally:
+              client.close()
       interval: 10s
-      timeout: 5s
+      timeout: 15s
       start_period: 60s
       retries: 6
 

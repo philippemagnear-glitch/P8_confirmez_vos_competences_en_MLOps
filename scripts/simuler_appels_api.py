@@ -13,13 +13,11 @@ Aucun fichier de mesures n'est exporté.
 """
 
 import argparse
-import json
 import random
 import sys
 import time
 from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import pandas as pd
@@ -111,16 +109,6 @@ def select_clients(csv_path, schema, count, rng):
     return clients
 
 
-def post_json(url, path, payload):
-    """Transmet les mesures à l'API ; une erreur arrête le lot sans rejouer le score."""
-    request = Request(
-        url.rstrip('/') + path, data=json.dumps(payload, allow_nan=False).encode(),
-        headers={"Content-Type": "application/json"}, method="POST",
-    )
-    with urlopen(request, timeout=30) as response:
-        return json.load(response)
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", default="http://127.0.0.1:7860")
@@ -154,9 +142,12 @@ def main():
                 print(f"[{index}/{len(clients)}] Rejet ou erreur serveur : {error}")
             else:
                 successes += 1
-                post_json(args.url, "/measurements", {
-                    "request_id": result["request_id"], "latency_ms": latency_ms,
-                })
+                saved = client.submit(
+                    measurement={"request_id": result["request_id"], "latency_ms": latency_ms},
+                    api_name="/measurements",
+                ).result(timeout=60)
+                if saved != {"status": "saved", "request_id": result["request_id"]}:
+                    raise RuntimeError("L'enregistrement de la latence n'a pas été confirmé.")
                 print(f"[{index}/{len(clients)}] Score={result['score']:.6f}, classe={result['prediction']}")
             if index < len(clients):
                 time.sleep(rng.uniform(0.2, 1.0))
