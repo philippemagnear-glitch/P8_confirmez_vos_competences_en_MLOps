@@ -3,9 +3,8 @@
 import copy
 import math
 
-import pandas as pd
+import numpy as np
 import pytest
-from pandas.testing import assert_frame_equal
 
 from app.prediction import InputValidationError
 
@@ -15,39 +14,40 @@ def test_T01_missing_key_names_column_before_model(scorer, client_data, field):
     del client_data[field]
     with pytest.raises(InputValidationError, match=field):
         scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 def test_T02_explicit_null_and_zero_reach_pipeline(scorer, client_data):
     assert client_data["OWN_CAR_AGE"] is None
     assert client_data["CNT_CHILDREN"] == 0
     scorer.model.predict(client_data)
-    frame = scorer.pipeline.predict_proba.call_args.args[0]
-    assert pd.isna(frame.at[0, "OWN_CAR_AGE"])
-    assert frame.at[0, "CNT_CHILDREN"] == 0
-    assert not pd.isna(frame.at[0, "CNT_CHILDREN"])
+    frame = scorer.session.run.call_args.args[1]["input"]
+    assert frame.shape == (1, 310)
+    assert frame.dtype == np.float32
+    assert np.isnan(frame[0, scorer.model.feature_names.index("OWN_CAR_AGE")])
+    assert frame[0, scorer.model.feature_names.index("CNT_CHILDREN")] == 0
 
 
 @pytest.mark.parametrize("field", ["AMT_INCOME_TOTAL", "CNT_CHILDREN"])
 def test_T02_numeric_null_is_accepted(scorer, client_data, field):
     client_data[field] = None
     scorer.model.predict(client_data)
-    frame = scorer.pipeline.predict_proba.call_args.args[0]
-    assert pd.isna(frame.at[0, field])
+    frame = scorer.session.run.call_args.args[1]["input"]
+    assert np.isnan(frame[0, scorer.model.feature_names.index(field)])
 
 
 def test_T02_boolean_null_is_rejected(scorer, client_data):
     client_data["OWN_CAR_AGE_ANOMALOUS"] = None
     with pytest.raises(InputValidationError, match="OWN_CAR_AGE_ANOMALOUS.*booléen"):
         scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("payload", [[], "client", None, {1: 0}])
 def test_T03_invalid_structure(scorer, payload):
     with pytest.raises(InputValidationError):
         scorer.model.predict(payload)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("field,value", [
@@ -68,7 +68,7 @@ def test_T03_invalid_field_before_calculation(scorer, client_data, field, value)
     client_data[field] = value
     with pytest.raises(InputValidationError, match=field):
         scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("value", [2 ** 31, -(2 ** 31) - 1])
@@ -79,7 +79,7 @@ def test_T03_integer32_overflow(model_factory, schema_specs, client_data, value)
     client_data["CNT_CHILDREN"] = value
     with pytest.raises(InputValidationError, match="CNT_CHILDREN.*limites"):
         scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 # Cas indépendants des ensembles de règles définis dans le code applicatif.
@@ -114,12 +114,12 @@ def test_T04_non_negative_fields(scorer, client_data, schema_specs, field, value
     client_data[field] = value
     if accepted:
         scorer.model.predict(client_data)
-        frame = scorer.pipeline.predict_proba.call_args.args[0]
-        assert frame.at[0, field] == value
+        frame = scorer.session.run.call_args.args[1]["input"]
+        assert frame[0, scorer.model.feature_names.index(field)] == np.float32(value)
     else:
         with pytest.raises(InputValidationError, match=f"{field}.*supérieure ou égale à 0"):
             scorer.model.predict(client_data)
-        scorer.pipeline.predict_proba.assert_not_called()
+        scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("value,accepted", [(-12994, True), (-1, True), (0, False), (12994, False)])
@@ -130,7 +130,7 @@ def test_T04_birth_date(scorer, client_data, value, accepted):
     else:
         with pytest.raises(InputValidationError, match="DAYS_BIRTH.*< 0"):
             scorer.model.predict(client_data)
-        scorer.pipeline.predict_proba.assert_not_called()
+        scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("value,accepted", [(0, True), (23, True), (-1, False), (24, False)])
@@ -141,7 +141,7 @@ def test_T04_application_hour(scorer, client_data, value, accepted):
     else:
         with pytest.raises(InputValidationError, match="HOUR_APPR_PROCESS_START.*0 et 23"):
             scorer.model.predict(client_data)
-        scorer.pipeline.predict_proba.assert_not_called()
+        scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("field", [
@@ -162,14 +162,14 @@ def test_T04_past_relative_dates(scorer, client_data, schema_specs, field, value
     else:
         with pytest.raises(InputValidationError, match=f"{field}.*<= 0"):
             scorer.model.predict(client_data)
-        scorer.pipeline.predict_proba.assert_not_called()
+        scorer.session.run.assert_not_called()
 
 
 def test_T04_employed_raw_sentinel_is_not_processed(scorer, client_data):
     client_data["DAYS_EMPLOYED"] = 365243.0
     with pytest.raises(InputValidationError, match="DAYS_EMPLOYED.*sentinelles"):
         scorer.model.predict(client_data)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("field", [
@@ -192,7 +192,7 @@ def test_T04_proportion_boundaries(scorer, client_data, field, value, accepted):
     else:
         with pytest.raises(InputValidationError, match=f"{field}.*0 et 1"):
             scorer.model.predict(client_data)
-        scorer.pipeline.predict_proba.assert_not_called()
+        scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("field,value", [
@@ -208,18 +208,17 @@ def test_T04_proportion_boundaries(scorer, client_data, field, value, accepted):
 def test_T04_no_unestablished_bound(scorer, client_data, field, value):
     client_data[field] = value
     scorer.model.predict(client_data)
-    frame = scorer.pipeline.predict_proba.call_args.args[0]
-    assert frame.at[0, field] == value
+    frame = scorer.session.run.call_args.args[1]["input"]
+    assert frame[0, scorer.model.feature_names.index(field)] == np.float32(value)
 
 
 def test_T05_key_order_does_not_change_model_input(scorer, client_data):
     scorer.model.predict(client_data)
-    original = scorer.pipeline.predict_proba.call_args.args[0].copy()
+    original = scorer.session.run.call_args.args[1]["input"].copy()
     shuffled = dict(reversed(list(client_data.items())))
     scorer.model.predict(shuffled)
-    reordered = scorer.pipeline.predict_proba.call_args.args[0]
-    assert list(reordered.columns) == scorer.model.feature_names
-    assert_frame_equal(original, reordered)
+    reordered = scorer.session.run.call_args.args[1]["input"]
+    np.testing.assert_array_equal(original, reordered)
 
 
 @pytest.mark.parametrize("classes", [(0, 1), (1, 0)])
@@ -258,4 +257,5 @@ def test_T10_schema_and_shared_model(scorer, client_data, schema_specs):
     scorer.model.predict(client_data)
     scorer.model.predict(client_data)
     scorer.loader.assert_called_once()
-    assert scorer.pipeline.predict_proba.call_count == 2
+    scorer.session_loader.assert_called_once()
+    assert scorer.session.run.call_count == 2

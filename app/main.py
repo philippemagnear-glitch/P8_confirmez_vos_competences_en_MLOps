@@ -3,18 +3,20 @@
 import json
 import logging
 import os
+import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
-from time import perf_counter
+from typing import Annotated
+from uuid import UUID
 
 # Désactive la télémétrie Gradio avant son import.
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 
 import gradio as gr
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import Body, FastAPI, HTTPException
 
 from app.prediction import CreditScoringModel, InputValidationError
+from app.scoring_service import process_api_call
 from app.storage import ApiCallStore
 
 
@@ -56,41 +58,27 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
         LOGGER.warning("Échantillon CSV indisponible : %s", error)
         demo_clients = {}
 
-    def run_operation(operation, action, client=None):
-        """Mesure le traitement et trace son issue, même si le calcul échoue."""
-        started = perf_counter()
-        started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        status, result, reason = "error", None, None
+    def handle_api_call(operation, client=None):
+        """Adapte les erreurs du traitement commun aux messages Gradio."""
         try:
-            result = action()
-            status = "success"
-            return result
+            return process_api_call(model, call_store, operation, client)
         except InputValidationError as error:
-            status, reason = "rejected", str(error)
             raise gr.Error(str(error), print_exception=False) from None
-        except Exception as error:
-            # Le texte de l'exception peut contenir des données client.
+        except Exception:
             message = (
                 "La prédiction a échoué. Consulter les logs du serveur."
                 if operation == "predict" else
                 "La lecture du schéma a échoué. Consulter les logs du serveur."
             )
-            reason = f"{message} ({type(error).__name__})"
-            LOGGER.error("Échec de la %s (%s).",
-                         "prédiction" if operation == "predict" else "lecture du schéma",
-                         type(error).__name__)
             raise gr.Error(message, print_exception=False) from None
-        finally:
-            call_store.record(operation=operation, status=status, started_at=started_at,
-                              started=started, inputs=client, result=result, reason=reason)
 
     def predict(client: dict) -> dict:
         """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""
-        return run_operation("predict", lambda: model.predict(client), client)
+        return handle_api_call("predict", client)
 
     def get_schema() -> dict:
         """Retourne les variables attendues, leurs types et leur caractère obligatoire."""
-        return run_operation("schema", model.schema)
+        return handle_api_call("schema")
 
     def select_client(client_id: str) -> tuple[str, None]:
         if client_id not in demo_clients:
@@ -169,6 +157,7 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
             api_description=(
                 "Reçoit un objet JSON contenant les 310 clés obligatoires et retourne "
                 "score, prediction, threshold, model_name et model_version. "
+                "request_id permet de retrouver les mesures de cet appel dans SQLite. "
                 "Les valeurs numériques null sont imputées ; zéro est conservé. "
                 "Données invalides : gradio_client lève AppError avec un message "
                 "nommant le champ à corriger. Panne interne du calcul : AppError "
@@ -197,6 +186,26 @@ def create_app(model: CreditScoringModel | None = None) -> FastAPI:
         model = CreditScoringModel()
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     demo = create_demo(model).queue()
+    store = ApiCallStore()
+
+    @app.post("/measurements")
+    def save_latency(
+        request_id: Annotated[UUID, Body()],
+        latency_ms: Annotated[float, Body(strict=True, ge=0, allow_inf_nan=False)],
+    ):
+        """Ajoute la latence côté client à une prédiction déjà enregistrée."""
+        try:
+            store.record_latency(
+                request_id=str(request_id), latency_ms=latency_ms,
+            )
+        except KeyError as error:
+            raise HTTPException(404, error.args[0]) from None
+        except RuntimeError as error:
+            raise HTTPException(409, str(error)) from None
+        except (OSError, sqlite3.Error) as error:
+            LOGGER.error("Mesure non enregistrée (%s).", type(error).__name__)
+            raise HTTPException(503, "Stockage SQLite indisponible.") from None
+        return {"status": "saved", "request_id": str(request_id)}
 
     @app.get("/health")
     def health():

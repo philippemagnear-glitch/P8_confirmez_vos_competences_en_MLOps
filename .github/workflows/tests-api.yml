@@ -110,7 +110,7 @@ jobs:
           docker run --detach --name scoring-dashboard-ci
           --publish 127.0.0.1:8501:8501
           --mount "type=bind,source=$RUNNER_TEMP/scoring-data,target=/app/data,readonly"
-          "$IMAGE_TAG" python -m streamlit run dashboard.py
+          "$IMAGE_TAG" python -m streamlit run app/monitoring/dashboard.py
           --server.address=0.0.0.0 --server.port=8501
           --server.headless=true --browser.gatherUsageStats=false
       - name: Vérifier la santé des deux services et la lecture SQLite du dashboard
@@ -138,7 +138,8 @@ jobs:
                       time.sleep(1)
               print("Service prêt :", url)
           PY
-          docker exec scoring-dashboard-ci python -c "from monitoring import DB_PATH, lire_fenetres; calls, _ = lire_fenetres(DB_PATH, 100); assert calls.status.eq('success').any(), 'Aucune prédiction lisible dans SQLite'; print('Dashboard : SQLite lisible,', len(calls), 'prédiction(s)')"
+          docker exec scoring-dashboard-ci python -c "from app.monitoring.analysis import DB_PATH, lire_fenetres; calls, _ = lire_fenetres(DB_PATH, 100); assert calls.status.eq('success').any(), 'Aucune prédiction lisible dans SQLite'; print('Dashboard : SQLite lisible,', len(calls), 'prédiction(s)')"
+          docker exec credit-scoring-ci python -c "import os,sqlite3; from contextlib import closing; c=sqlite3.connect(os.environ['API_CALLS_DB_PATH']); r=c.execute(\"SELECT inference_ms,cpu_time_ms,execution_device FROM api_calls WHERE operation='predict' AND status='success' ORDER BY rowid DESC LIMIT 1\").fetchone(); c.close(); assert r and all(v is not None and v>=0 for v in r[:2]) and r[2] in ('cpu','gpu','cuda'), 'Mesures de performance absentes ou invalides'; print('Mesures inference/CPU/backend:',r)"
       - name: T13 - Vérifier la conservation SQLite avec la même image et un volume
         run: python tests/verifier_persistance_docker.py --image "$IMAGE_TAG"
       - name: Journaux du conteneur en cas d'échec

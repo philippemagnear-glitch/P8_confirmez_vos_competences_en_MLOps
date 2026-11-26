@@ -3,8 +3,10 @@
 import json
 import logging
 from unittest.mock import Mock
+from uuid import UUID
 
 import gradio as gr
+import numpy as np
 import pandas as pd
 import pytest
 from gradio_client.exceptions import AppError
@@ -46,7 +48,7 @@ def test_T03_ui_malformed_json(scorer, tmp_path, monkeypatch, text):
     demo = main.create_demo(scorer.model)
     with pytest.raises(gr.Error, match="JSON valide"):
         callback(demo, "predict_json")(text)
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 def test_T08_real_v4_shared_reference_through_predict(serve_api):
@@ -67,7 +69,7 @@ def test_T09_missing_key_reaches_third_party(api, client_data):
     del client_data["OWN_CAR_AGE"]
     with pytest.raises(AppError, match="Variables obligatoires absentes.*OWN_CAR_AGE"):
         api.client.submit(client=client_data, api_name="/predict").result(timeout=20)
-    api.scorer.pipeline.predict_proba.assert_not_called()
+    api.scorer.session.run.assert_not_called()
 
 
 @pytest.mark.parametrize("exception_type", [ValueError, RuntimeError])
@@ -75,7 +77,7 @@ def test_T09_internal_error_is_generic_and_private(
     api, client_data, caplog, capsys, exception_type,
 ):
     secret = "DONNEES_CLIENT_CONFIDENTIELLES_180000"
-    api.scorer.pipeline.failure = exception_type(secret + json.dumps(client_data))
+    api.scorer.session.failure = exception_type(secret + json.dumps(client_data))
     with caplog.at_level(logging.ERROR, logger="app.main"):
         with pytest.raises(AppError) as raised:
             api.client.submit(client=client_data, api_name="/predict").result(timeout=20)
@@ -106,18 +108,20 @@ def test_T10_http_schema_and_valid_json_without_demo_csv(api, client_data, schem
     assert by_name["OWN_CAR_AGE_ANOMALOUS"]["type"] == "boolean"
     assert by_name["OWN_CAR_AGE_ANOMALOUS"]["nullable"] is False
     result = api.client.submit(client=client_data, api_name="/predict").result(timeout=20)
+    request_id = result.pop("request_id")
+    assert str(UUID(request_id)) == request_id
     assert result == {
         "score": 0.25, "prediction": 0, "threshold": 0.5,
         "model_name": "credit_scoring_lightgbm", "model_version": "4",
     }
-    frame = api.scorer.pipeline.predict_proba.call_args.args[0]
-    assert pd.isna(frame.at[0, "OWN_CAR_AGE"])
-    assert frame.at[0, "CNT_CHILDREN"] == 0
-    api.scorer.pipeline.predict_proba.reset_mock()
+    frame = api.scorer.session.run.call_args.args[1]["input"]
+    assert np.isnan(frame[0, api.scorer.model.feature_names.index("OWN_CAR_AGE")])
+    assert frame[0, api.scorer.model.feature_names.index("CNT_CHILDREN")] == 0
+    api.scorer.session.run.reset_mock()
     client_data["OWN_CAR_AGE_ANOMALOUS"] = None
     with pytest.raises(AppError, match="OWN_CAR_AGE_ANOMALOUS.*booléen"):
         api.client.submit(client=client_data, api_name="/predict").result(timeout=20)
-    api.scorer.pipeline.predict_proba.assert_not_called()
+    api.scorer.session.run.assert_not_called()
 
 
 def test_T10_csv_failure_does_not_block_api(scorer, tmp_path, monkeypatch, caplog):
@@ -139,4 +143,4 @@ def test_T10_default_startup_loads_model_once(scorer, tmp_path, monkeypatch, cli
     predict(client_data)
     predict(client_data)
     loader.assert_called_once()
-    assert scorer.pipeline.predict_proba.call_count == 2
+    assert scorer.session.run.call_count == 2

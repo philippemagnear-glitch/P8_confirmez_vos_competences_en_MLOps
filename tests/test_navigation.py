@@ -24,7 +24,7 @@ def test_gradio_dashboard_button_opens_configured_url_in_new_tab(
 @pytest.mark.parametrize("url", ["http://localhost:7860", "https://scoring.example.org"])
 def test_streamlit_prediction_button_uses_configured_url(monkeypatch, url):
     monkeypatch.setenv("SCORING_URL", url)
-    dashboard = Path(__file__).resolve().parents[1] / "dashboard.py"
+    dashboard = Path(__file__).resolve().parents[1] / "app" / "monitoring" / "dashboard.py"
     app = AppTest.from_file(str(dashboard)).run(timeout=30)
     assert not app.exception
     button = app.get("link_button")[0]

@@ -22,7 +22,7 @@ from evidently.metrics import MissingValueCount, ValueDrift
 
 from app.prediction import ARTIFACTS_PATH, CreditScoringModel
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[2]
 TRAIN_PATH = ROOT / "data/processed/application_train_final_encoded.csv"
 DB_PATH = Path(os.environ.get("API_CALLS_DB_PATH", str(ROOT / "data/api_calls.sqlite3")))
 MIN_OBSERVATIONS = 50
@@ -92,7 +92,7 @@ def lire_fenetres(database: Path, nombre: int) -> tuple:
         raise FileNotFoundError("Base SQLite absente.")
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
         calls = pd.read_sql_query(
-            """SELECT status, model_version, input_json, score, prediction, threshold, duration_ms
+            """SELECT status, model_version, input_json, score, prediction, threshold, latency_ms
                FROM api_calls WHERE operation = 'predict'
                ORDER BY timestamp_utc DESC, rowid DESC LIMIT ?""",
             connection, params=(2 * nombre,),
@@ -104,7 +104,7 @@ def lire_fenetres(database: Path, nombre: int) -> tuple:
 
 def mesures_service(calls: pd.DataFrame) -> pd.Series:
     """Mesure les erreurs sur tous les appels et les durées sur les réussites."""
-    durations = pd.to_numeric(calls.loc[calls["status"].eq("success"), "duration_ms"], errors="raise")
+    durations = pd.to_numeric(calls.loc[calls["status"].eq("success"), "latency_ms"], errors="raise").dropna()
     if durations.isna().any() or durations.isin([float("inf"), float("-inf")]).any() or durations.lt(0).any():
         raise ValueError("Durée enregistrée invalide.")
     rows = []
@@ -115,6 +115,78 @@ def mesures_service(calls: pd.DataFrame) -> pd.Series:
         value = durations.quantile(quantile) if len(durations) >= MIN_OBSERVATIONS else None
         rows.append((label, value))
     return pd.Series(dict(rows), dtype="float64")
+
+
+def mesures_performances(calls: pd.DataFrame) -> dict:
+    """Agrège une fenêtre ; chaque durée utilise ses seules réussites mesurées."""
+    success = calls.loc[calls["status"].eq("success")]
+    result = {"Appels": len(calls), "Réussites": len(success)}
+    for status, label in [("rejected", "Rejets (%)"), ("error", "Pannes (%)")]:
+        result[label] = 100 * calls["status"].eq(status).mean() if len(calls) >= MIN_OBSERVATIONS else float("nan")
+    for column, label in [
+        ("latency_ms", "Latence médiane (ms)"),
+        ("inference_ms", "Inférence médiane (ms)"),
+        ("cpu_time_ms", "Temps CPU médian (ms)"),
+        ("preparation_ms", "Préparation médiane (ms)"),
+        ("other_elapsed_ms", "Autres délais médians (ms)"),
+    ]:
+        values = pd.to_numeric(success.get(column, pd.Series(index=success.index, dtype="float64")), errors="coerce")
+        values = values.loc[values.notna() & values.ge(0) & values.lt(float("inf"))]
+        result[f"Mesures {column}"] = len(values)
+        result[label] = values.median() if len(values) >= MIN_OBSERVATIONS else float("nan")
+        if column == "latency_ms":
+            result["Latence P95 (ms)"] = values.quantile(.95) if len(values) >= MIN_OBSERVATIONS else float("nan")
+            result["P95 provisoire"] = 50 <= len(values) < 100
+    if len(calls):
+        dates = pd.to_datetime(calls["timestamp_utc"], utc=True, errors="raise").dt.tz_convert("Europe/Paris")
+        result["Début"] = dates.min().strftime("%d/%m/%Y %H:%M:%S")
+        result["Fin"] = dates.max().strftime("%d/%m/%Y %H:%M:%S")
+    else:
+        result.update({"Début": "—", "Fin": "—"})
+    result["Versions du modèle"] = ", ".join(sorted(success["model_version"].dropna().astype(str).unique())) or "—"
+    return result
+
+
+def analyser_performances(database: Path, nombre: int = 100) -> dict:
+    """Lit un instantané en lecture seule, indépendamment d'Evidently et du CSV.
+
+    Les fenêtres sont ancrées sur les appels les plus récents. Les mesures
+    absentes, négatives ou non finies sont exclues, jamais remplacées par zéro.
+    Aucun groupe ne chevauche un autre ; le plus ancien peut être incomplet.
+    """
+    if not 50 <= nombre <= 500:
+        raise ValueError("Choisir entre 50 et 500 appels par fenêtre.")
+    if not database.is_file():
+        raise FileNotFoundError("Base SQLite absente.")
+    with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(api_calls)")}
+        # Un historique antérieur à l'instrumentation reste lisible.
+        metrics = ", ".join(
+            name if name in columns else f"NULL AS {name}"
+            for name in ["cpu_time_ms", "preparation_ms", "inference_ms", "other_elapsed_ms", "latency_ms"]
+        )
+        calls = pd.read_sql_query(
+            f"SELECT timestamp_utc,status,model_version,{metrics} FROM api_calls "
+            "WHERE operation='predict' ORDER BY timestamp_utc DESC,rowid DESC", connection,
+        )
+    if not calls["status"].isin(["success", "rejected", "error"]).all():
+        raise ValueError("Statut enregistré inconnu.")
+    current = mesures_performances(calls.iloc[:nombre])
+    previous = mesures_performances(calls.iloc[nombre:2 * nombre])
+    history = [mesures_performances(calls.iloc[start:start + nombre])
+               for start in range(0, len(calls), nombre)]
+    history = pd.DataFrame(history[::-1])
+    history.index = pd.RangeIndex(1, len(history) + 1, name="Groupe")
+    return {
+        "actuel": current, "precedent": previous, "historique": history,
+        "comparaison": current["Appels"] == previous["Appels"] == nombre,
+        "parametres": (str(database.resolve()), nombre),
+        "date": pd.Timestamp.now(tz="Europe/Paris").strftime("%d/%m/%Y à %H:%M:%S"),
+        "mesures": calls.iloc[:nombre][[
+            "timestamp_utc", "status", "cpu_time_ms", "preparation_ms", "inference_ms",
+            "other_elapsed_ms", "latency_ms",
+        ]].copy(),
+    }
 
 
 def rapport_drift(reference: pd.DataFrame, current: pd.DataFrame, categories: list,
