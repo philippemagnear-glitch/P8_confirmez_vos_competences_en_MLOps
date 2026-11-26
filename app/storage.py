@@ -30,6 +30,17 @@ from uuid import uuid4
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "api_calls.sqlite3"
+CREATE_API_CALLS_TABLE = """
+    CREATE TABLE IF NOT EXISTS api_calls (
+        request_id TEXT PRIMARY KEY, timestamp_utc TEXT NOT NULL,
+        operation TEXT NOT NULL CHECK(operation IN ('predict', 'schema')),
+        status TEXT NOT NULL CHECK(status IN ('success', 'rejected', 'error')),
+        model_version TEXT, execution_device TEXT,
+        input_json TEXT, score REAL, prediction INTEGER, threshold REAL, reason TEXT,
+        cpu_time_ms REAL, preparation_ms REAL, inference_ms REAL, storage_ms REAL,
+        other_elapsed_ms REAL, latency_ms REAL
+    )
+"""
 
 
 class ApiCallStore:
@@ -47,24 +58,25 @@ class ApiCallStore:
         with closing(sqlite3.connect(self.path, timeout=5.0)) as connection:
             with connection:
                 connection.execute("BEGIN IMMEDIATE")
-                connection.execute("""
-                    CREATE TABLE IF NOT EXISTS api_calls (
-                        request_id TEXT PRIMARY KEY, timestamp_utc TEXT NOT NULL,
-                        operation TEXT NOT NULL CHECK(operation IN ('predict', 'schema')),
-                        status TEXT NOT NULL CHECK(status IN ('success', 'rejected', 'error')),
-                        duration_ms REAL NOT NULL CHECK(duration_ms >= 0),
-                        input_json TEXT, score REAL, prediction INTEGER, threshold REAL,
-                        model_version TEXT, reason TEXT
-                    )
-                """)
+                connection.execute(CREATE_API_CALLS_TABLE)
                 existing = {row[1] for row in connection.execute("PRAGMA table_info(api_calls)")}
                 for name, data_type in (
                     ("inference_ms", "REAL"), ("cpu_time_ms", "REAL"),
                     ("execution_device", "TEXT"),
                     ("latency_ms", "REAL"),
+                    ("preparation_ms", "REAL"), ("storage_ms", "REAL"),
+                    ("other_elapsed_ms", "REAL"),
                 ):
                     if name not in existing:
                         connection.execute(f"ALTER TABLE api_calls ADD COLUMN {name} {data_type}")
+                obsolete = {"cpu_percent", "duration_ms", "server_ms", "exchange_wait_ms",
+                            "application_processing_ms", "outside_application_ms"} & existing
+                if obsolete:
+                    connection.execute(
+                        "UPDATE api_calls SET other_elapsed_ms=latency_ms-preparation_ms-inference_ms-storage_ms"
+                    )
+                    for name in sorted(obsolete):
+                        connection.execute(f"ALTER TABLE api_calls DROP COLUMN {name}")
                 yield connection
 
     def record_latency(self, *, request_id: str, latency_ms: float):
@@ -84,13 +96,18 @@ class ApiCallStore:
                     return
                 raise RuntimeError("Une mesure existe déjà pour cet appel.")
             connection.execute(
-                "UPDATE api_calls SET latency_ms=? WHERE request_id=?",
-                (latency_ms, request_id),
+                "UPDATE api_calls SET latency_ms=?,other_elapsed_ms=?-preparation_ms-inference_ms-storage_ms WHERE request_id=?",
+                (latency_ms, latency_ms, request_id),
             )
 
-    def record(self, *, operation, status, started_at, started, inputs=None,
-               result=None, reason=None, request_id=None, measurements=None):
-        duration_ms = max(0.0, (perf_counter() - started) * 1000)
+    def record_api_call(self, *, operation, status, started_at, inputs=None,
+                        result=None, reason=None, request_id=None, measurements=None):
+        """Enregistre l'appel et mesure jusqu'à la fin de sa transaction SQLite.
+
+        Une seconde écriture conserve storage_ms. Elle fait partie des autres
+        délais, avec les échanges, l'attente et les opérations non isolées.
+        """
+        storage_started = perf_counter()
         request_id = request_id or str(uuid4())
         measurements = measurements or {}
         try:
@@ -101,17 +118,24 @@ class ApiCallStore:
             with self._connection() as connection:
                 connection.execute("""
                         INSERT INTO api_calls (
-                            request_id, timestamp_utc, operation, status, duration_ms,
+                            request_id, timestamp_utc, operation, status,
                             input_json, score, prediction, threshold, model_version, reason,
-                            inference_ms, cpu_time_ms, execution_device
+                            inference_ms, cpu_time_ms, execution_device, preparation_ms
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
-                        request_id, started_at, operation, status, duration_ms, payload,
+                        request_id, started_at, operation, status, payload,
                         output.get("score"), output.get("prediction"),
                         output.get("threshold"), output.get("model_version"), reason,
                         measurements.get("inference_ms"), measurements.get("cpu_time_ms"),
-                        measurements.get("execution_device"),
+                        measurements.get("execution_device"), measurements.get("preparation_ms"),
                     ))
+            finished = perf_counter()
+            storage_ms = (finished - storage_started) * 1000
+            with self._connection() as connection:
+                connection.execute(
+                    "UPDATE api_calls SET storage_ms=? WHERE request_id=?",
+                    (storage_ms, request_id),
+                )
         except (OSError, sqlite3.Error, TypeError, ValueError) as error:
             LOGGER.error("Stockage SQLite impossible pour %s (%s).",
                          request_id, type(error).__name__)

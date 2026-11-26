@@ -92,7 +92,7 @@ def lire_fenetres(database: Path, nombre: int) -> tuple:
         raise FileNotFoundError("Base SQLite absente.")
     with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
         calls = pd.read_sql_query(
-            """SELECT status, model_version, input_json, score, prediction, threshold, duration_ms
+            """SELECT status, model_version, input_json, score, prediction, threshold, latency_ms
                FROM api_calls WHERE operation = 'predict'
                ORDER BY timestamp_utc DESC, rowid DESC LIMIT ?""",
             connection, params=(2 * nombre,),
@@ -104,7 +104,7 @@ def lire_fenetres(database: Path, nombre: int) -> tuple:
 
 def mesures_service(calls: pd.DataFrame) -> pd.Series:
     """Mesure les erreurs sur tous les appels et les durées sur les réussites."""
-    durations = pd.to_numeric(calls.loc[calls["status"].eq("success"), "duration_ms"], errors="raise")
+    durations = pd.to_numeric(calls.loc[calls["status"].eq("success"), "latency_ms"], errors="raise").dropna()
     if durations.isna().any() or durations.isin([float("inf"), float("-inf")]).any() or durations.lt(0).any():
         raise ValueError("Durée enregistrée invalide.")
     rows = []
@@ -127,8 +127,11 @@ def mesures_performances(calls: pd.DataFrame) -> dict:
         ("latency_ms", "Latence médiane (ms)"),
         ("inference_ms", "Inférence médiane (ms)"),
         ("cpu_time_ms", "Temps CPU médian (ms)"),
+        ("preparation_ms", "Préparation médiane (ms)"),
+        ("storage_ms", "Stockage médian (ms)"),
+        ("other_elapsed_ms", "Autres délais médians (ms)"),
     ]:
-        values = pd.to_numeric(success[column], errors="coerce")
+        values = pd.to_numeric(success.get(column, pd.Series(index=success.index, dtype="float64")), errors="coerce")
         values = values.loc[values.notna() & values.ge(0) & values.lt(float("inf"))]
         result[f"Mesures {column}"] = len(values)
         result[label] = values.median() if len(values) >= MIN_OBSERVATIONS else float("nan")
@@ -161,7 +164,7 @@ def analyser_performances(database: Path, nombre: int = 100) -> dict:
         # Un historique antérieur à l'instrumentation reste lisible.
         metrics = ", ".join(
             name if name in columns else f"NULL AS {name}"
-            for name in ["latency_ms", "inference_ms", "cpu_time_ms"]
+            for name in ["cpu_time_ms", "preparation_ms", "inference_ms", "storage_ms", "other_elapsed_ms", "latency_ms"]
         )
         calls = pd.read_sql_query(
             f"SELECT timestamp_utc,status,model_version,{metrics} FROM api_calls "
@@ -180,6 +183,10 @@ def analyser_performances(database: Path, nombre: int = 100) -> dict:
         "comparaison": current["Appels"] == previous["Appels"] == nombre,
         "parametres": (str(database.resolve()), nombre),
         "date": pd.Timestamp.now(tz="Europe/Paris").strftime("%d/%m/%Y à %H:%M:%S"),
+        "mesures": calls.iloc[:nombre][[
+            "timestamp_utc", "status", "cpu_time_ms", "preparation_ms", "inference_ms",
+            "storage_ms", "other_elapsed_ms", "latency_ms",
+        ]].copy(),
     }
 
 

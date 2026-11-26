@@ -204,15 +204,28 @@ class CreditScoringModel:
         return pd.DataFrame([values], columns=self.feature_names).astype(dtypes)
 
     def predict(self, client: dict, *, measurements: dict | None = None) -> dict:
-        """Retourne la probabilité de défaut et la classe au seuil retenu."""
-        frame = self.prepare_input(client)
+        """Enchaîne préparation, inférence et construction de la réponse."""
         started = perf_counter()
         try:
-            probabilities = self.pipeline.predict_proba(frame)
+            frame = self.prepare_input(client)
+        finally:
+            if measurements is not None:
+                measurements["preparation_ms"] = (perf_counter() - started) * 1000
+        probabilities = self.run_inference(frame, measurements=measurements)
+        return self.format_prediction(probabilities)
+
+    def run_inference(self, frame: pd.DataFrame, *, measurements: dict | None = None):
+        """Exécute le pipeline entraîné : imputation et probabilités LightGBM."""
+        started = perf_counter()
+        try:
+            return self.pipeline.predict_proba(frame)
         finally:
             if measurements is not None:
                 # Imputation et LightGBM ; validation et création du DataFrame exclues.
                 measurements["inference_ms"] = (perf_counter() - started) * 1000
+
+    def format_prediction(self, probabilities) -> dict:
+        """Vérifie le score et construit la classe et les métadonnées de réponse."""
         score = float(probabilities[0, self.default_class_index])
         if not math.isfinite(score) or not 0 <= score <= 1:
             raise RuntimeError("Le modèle a retourné une probabilité invalide.")

@@ -14,3 +14,5 @@ streamlit==1.67.0
 ipykernel==7.4.0
 pytest==9.2.0
 pytest-cov==7.1.0
+# Visualisation locale des profils cProfile
+snakeviz==2.2.2

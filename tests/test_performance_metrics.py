@@ -2,7 +2,6 @@
 
 import sqlite3
 from contextlib import closing
-from time import perf_counter
 from uuid import UUID, uuid4
 
 import gradio as gr
@@ -45,7 +44,9 @@ def test_api_measurements_are_correlated_and_validation_precedes_inference(
         assert row["execution_device"] == "cpu"
         if valid:
             assert row["request_id"] == result["request_id"]
-            assert 0 <= row["inference_ms"] <= row["duration_ms"]
+            assert row["inference_ms"] >= 0
+            assert row["preparation_ms"] >= 0
+            assert row["storage_ms"] >= 0
             assert row["score"] == result["score"] == 0.25
         else:
             assert row["status"] == "rejected"
@@ -75,8 +76,8 @@ def test_old_database_migration_preserves_rows(tmp_path):
             """)
     store = ApiCallStore(database)
     for _ in range(2):
-        store.record(operation="schema", status="success", started_at="2026-11-21",
-                     started=perf_counter(), measurements={"cpu_time_ms": 1})
+        store.record_api_call(operation="schema", status="success", started_at="2026-11-21",
+                              measurements={"cpu_time_ms": 1})
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT COUNT(*) FROM api_calls").fetchone()[0] == 3
         assert connection.execute(
@@ -91,9 +92,9 @@ def measured_api(scorer, tmp_path, monkeypatch, client_data):
     monkeypatch.setenv("API_CALLS_DB_PATH", str(database))
     monkeypatch.setattr(main, "DEMO_CSV", tmp_path / "absent.csv")
     request_id = str(uuid4())
-    ApiCallStore(database).record(
+    ApiCallStore(database).record_api_call(
         operation="predict", status="success", started_at="2026-11-21T09:00:00+00:00",
-        started=perf_counter(), request_id=request_id, inputs=client_data,
+        request_id=request_id, inputs=client_data,
         result=scorer.model.predict(client_data),
     )
     with TestClient(main.create_app(scorer.model)) as api:

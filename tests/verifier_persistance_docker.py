@@ -71,7 +71,7 @@ def verify_persistence(image: str, docker: str = "docker") -> dict:
             raise AssertionError("L'historique a changé après remplacement du conteneur.")
         verify_api(second_url)
         return {"request_id": row["request_id"], "timestamp_utc": row["timestamp_utc"],
-                "status": row["status"], "duration_ms": row["duration_ms"],
+                "status": row["status"], "storage_ms": row["storage_ms"],
                 "score": row["score"], "prediction": row["prediction"],
                 "threshold": row["threshold"], "model_version": row["model_version"],
                 "input_columns": len(client),

@@ -1,15 +1,12 @@
 """Interface Gradio et API : lancer depuis la racine avec python -m app.main."""
 
-import cProfile
 import json
 import logging
 import os
 import sqlite3
 from pathlib import Path
-from datetime import datetime, timezone
-from time import perf_counter, process_time
 from typing import Annotated
-from uuid import UUID, uuid4
+from uuid import UUID
 
 # Désactive la télémétrie Gradio avant son import.
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
@@ -19,6 +16,7 @@ import pandas as pd
 from fastapi import Body, FastAPI, HTTPException
 
 from app.prediction import CreditScoringModel, InputValidationError
+from app.scoring_service import process_api_call
 from app.storage import ApiCallStore
 
 
@@ -54,77 +52,33 @@ def create_demo(model: CreditScoringModel | None = None) -> gr.Blocks:
     if model is None:
         model = CreditScoringModel()
     call_store = ApiCallStore()
-    profiling_enabled = os.environ.get("ENABLE_PROFILING", "0") == "1"
     try:
         demo_clients = load_demo_clients(model)
     except (OSError, ValueError) as error:
         LOGGER.warning("Échantillon CSV indisponible : %s", error)
         demo_clients = {}
 
-    def run_operation(operation, action, client=None, measurements=None):
-        """Mesure le traitement et trace son issue, même si le calcul échoue."""
-        started = perf_counter()
-        cpu_started = process_time()
-        request_id = str(uuid4())
-        measurements = measurements if measurements is not None else {}
-        started_at = datetime.now(timezone.utc).isoformat(timespec="milliseconds")
-        status, result, reason = "error", None, None
-        # Créé dans le thread Gradio qui traite cet appel, après chargement du modèle.
-        profiler = cProfile.Profile() if profiling_enabled and operation == "predict" else None
-        if profiler is not None:
-            profiler.enable()
+    def handle_api_call(operation, client=None):
+        """Adapte les erreurs du traitement commun aux messages Gradio."""
         try:
-            result = action()
-            if operation == "predict":
-                result = {**result, "request_id": request_id}
-            status = "success"
-            return result
+            return process_api_call(model, call_store, operation, client)
         except InputValidationError as error:
-            status, reason = "rejected", str(error)
             raise gr.Error(str(error), print_exception=False) from None
-        except Exception as error:
-            # Le texte de l'exception peut contenir des données client.
+        except Exception:
             message = (
                 "La prédiction a échoué. Consulter les logs du serveur."
                 if operation == "predict" else
                 "La lecture du schéma a échoué. Consulter les logs du serveur."
             )
-            reason = f"{message} ({type(error).__name__})"
-            LOGGER.error("Échec de la %s (%s).",
-                         "prédiction" if operation == "predict" else "lecture du schéma",
-                         type(error).__name__)
             raise gr.Error(message, print_exception=False) from None
-        finally:
-            cpu_ms = (process_time() - cpu_started) * 1000
-            measurements.update(
-                cpu_time_ms=cpu_ms,
-                execution_device=model.execution_device if operation == "predict" else None,
-            )
-            try:
-                call_store.record(operation=operation, status=status, started_at=started_at,
-                                  started=started, inputs=client, result=result, reason=reason,
-                                  request_id=request_id, measurements=measurements)
-            finally:
-                if profiler is not None:
-                    profiler.disable()
-                    try:
-                        directory = PROJECT_ROOT / "tests" / "reports" / "profiling"
-                        directory.mkdir(parents=True, exist_ok=True)
-                        profiler.dump_stats(str(directory / f"{request_id}.prof"))
-                    except OSError as error:
-                        LOGGER.error("Profil non enregistré (%s).", type(error).__name__)
 
     def predict(client: dict) -> dict:
         """Prédit pour un client préparé ; le score est la probabilité de TARGET=1."""
-        measurements = {}
-        return run_operation(
-            "predict", lambda: model.predict(client, measurements=measurements),
-            client, measurements,
-        )
+        return handle_api_call("predict", client)
 
     def get_schema() -> dict:
         """Retourne les variables attendues, leurs types et leur caractère obligatoire."""
-        return run_operation("schema", model.schema)
+        return handle_api_call("schema")
 
     def select_client(client_id: str) -> tuple[str, None]:
         if client_id not in demo_clients:

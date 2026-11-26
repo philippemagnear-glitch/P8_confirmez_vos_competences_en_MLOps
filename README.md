@@ -161,6 +161,11 @@ et `execution_device`. Le temps CPU concerne le processus serveur pendant le tra
 pas l'utilisation CPU globale de la machine. Le backend CPU actuel n'utilise
 pas le GPU. Mesures et limites de comparaison : [baseline avant optimisation](docs/baseline_avant_optimisation.md).
 
+Les durées sont ordonnées après `reason` : CPU, préparation, inférence, stockage,
+autres délais et latence totale. Pour une même ligne complète, la somme de la préparation,
+de l'inférence, du stockage et des autres délais donne la latence. Le CPU est indépendant. Les autres délais sont
+un reste calculé : attente, échanges et opérations non isolées, dont l'écriture des mesures.
+
 ## Historique SQLite et monitoring
 
 La table `api_calls` conserve UUID, date UTC, opération, statut et durée. Une prédiction
@@ -173,7 +178,7 @@ applicatives ne sont pas enregistrés. Il n'existe ni purge ni filtre automatiqu
 le stockage intégral est destiné aux données synthétiques du TP. Bases et datasets sont ignorés par Git.
 
 ```powershell
-python -m sqlite3 data/api_calls.sqlite3 "SELECT operation, status, score, duration_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
+python -m sqlite3 data/api_calls.sqlite3 "SELECT operation, status, score, latency_ms FROM api_calls ORDER BY rowid DESC LIMIT 5;"
 python -m sqlite3 data/api_calls.sqlite3 "SELECT timestamp_utc, inference_ms, latency_ms, cpu_time_ms FROM api_calls WHERE operation='predict' ORDER BY rowid DESC LIMIT 5;"
 ```
 
@@ -211,10 +216,33 @@ sans chevauchement. Les écarts exigent deux fenêtres complètes.
 Les rejets et pannes utilisent tous les appels `/predict` ; les médianes et le P95
 utilisent uniquement les réussites avec une mesure valide. Chaque carte affiche son effectif.
 Sous 50 observations, l'indicateur est indisponible ; entre 50 et 99 latences, le P95
-est provisoire. Les courbes suivent des groupes d'appels, pas des intervalles de temps égaux.
-Le tableau détaille les périodes, versions et effectifs. Les anciennes mesures absentes
-ne sont pas remplacées par zéro. Pour démontrer un gain, comparer les mêmes clients
-sans profiler, dans les mêmes conditions ; ces courbes seules ne prouvent pas une optimisation.
+est provisoire. Les anciennes mesures absentes ne sont pas remplacées par zéro.
+Pour démontrer un gain, comparer les mêmes clients sans profiler, dans les mêmes conditions.
+Les médianes des étapes ne s'additionnent pas pour reconstituer une latence médiane.
+
+Le tableau **Mesures des appels récents** affiche les durées individuelles, même sous
+50 observations. Les statistiques par étape restent indisponibles sous ce seuil.
+
+## Profilage sans Gradio
+
+Les appels API ordinaires ne déclenchent jamais cProfile. Pour examiner les fonctions
+coûteuses, le diagnostic appelle le même traitement partagé dans `app/scoring_service.py`,
+sans démarrer Gradio :
+
+```powershell
+# Un client par défaut ; même tirage à chaque lancement avec la même seed et le même CSV.
+python -m scripts.profiler_prediction --count 1 --seed 42
+python -m snakeviz tests/reports/profiling
+```
+
+Le profil couvre la préparation, l'inférence, la réponse et le stockage réel dans la base
+habituelle (`API_CALLS_DB_PATH` si défini). Le modèle et le CSV sont chargés avant la capture.
+Les mesures sont affichées dans le terminal, puis seules les lignes créées par ce diagnostic
+sont supprimées, par `request_id`, après l'arrêt du profiler. Le fichier `.prof` est conservé.
+Le réseau, la file Gradio et le nettoyage sont exclus ; aucune latence API n'est inventée.
+Les temps sous cProfile servent au diagnostic, les appels API sans profiler à démontrer un gain.
+En cas d'arrêt forcé du processus, le nettoyage ne peut pas être garanti ; si SQLite refuse
+la suppression, le script signale les identifiants concernés.
 
 ## Tests et pipeline CI/CD
 
