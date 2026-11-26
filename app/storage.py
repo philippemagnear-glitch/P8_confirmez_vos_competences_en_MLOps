@@ -24,7 +24,6 @@ import os
 import sqlite3
 from contextlib import closing, contextmanager
 from pathlib import Path
-from time import perf_counter
 from uuid import uuid4
 
 
@@ -37,7 +36,7 @@ CREATE_API_CALLS_TABLE = """
         status TEXT NOT NULL CHECK(status IN ('success', 'rejected', 'error')),
         model_version TEXT, execution_device TEXT,
         input_json TEXT, score REAL, prediction INTEGER, threshold REAL, reason TEXT,
-        cpu_time_ms REAL, preparation_ms REAL, inference_ms REAL, storage_ms REAL,
+        cpu_time_ms REAL, preparation_ms REAL, inference_ms REAL,
         other_elapsed_ms REAL, latency_ms REAL
     )
 """
@@ -64,16 +63,16 @@ class ApiCallStore:
                     ("inference_ms", "REAL"), ("cpu_time_ms", "REAL"),
                     ("execution_device", "TEXT"),
                     ("latency_ms", "REAL"),
-                    ("preparation_ms", "REAL"), ("storage_ms", "REAL"),
+                    ("preparation_ms", "REAL"),
                     ("other_elapsed_ms", "REAL"),
                 ):
                     if name not in existing:
                         connection.execute(f"ALTER TABLE api_calls ADD COLUMN {name} {data_type}")
                 obsolete = {"cpu_percent", "duration_ms", "server_ms", "exchange_wait_ms",
-                            "application_processing_ms", "outside_application_ms"} & existing
+                            "application_processing_ms", "outside_application_ms", "storage_ms"} & existing
                 if obsolete:
                     connection.execute(
-                        "UPDATE api_calls SET other_elapsed_ms=latency_ms-preparation_ms-inference_ms-storage_ms"
+                        "UPDATE api_calls SET other_elapsed_ms=latency_ms-preparation_ms-inference_ms"
                     )
                     for name in sorted(obsolete):
                         connection.execute(f"ALTER TABLE api_calls DROP COLUMN {name}")
@@ -96,18 +95,13 @@ class ApiCallStore:
                     return
                 raise RuntimeError("Une mesure existe déjà pour cet appel.")
             connection.execute(
-                "UPDATE api_calls SET latency_ms=?,other_elapsed_ms=?-preparation_ms-inference_ms-storage_ms WHERE request_id=?",
+                "UPDATE api_calls SET latency_ms=?,other_elapsed_ms=?-preparation_ms-inference_ms WHERE request_id=?",
                 (latency_ms, latency_ms, request_id),
             )
 
     def record_api_call(self, *, operation, status, started_at, inputs=None,
                         result=None, reason=None, request_id=None, measurements=None):
-        """Enregistre l'appel et mesure jusqu'à la fin de sa transaction SQLite.
-
-        Une seconde écriture conserve storage_ms. Elle fait partie des autres
-        délais, avec les échanges, l'attente et les opérations non isolées.
-        """
-        storage_started = perf_counter()
+        """Enregistre l'appel en une transaction, sans mesurer la durée du stockage."""
         request_id = request_id or str(uuid4())
         measurements = measurements or {}
         try:
@@ -129,13 +123,6 @@ class ApiCallStore:
                         measurements.get("inference_ms"), measurements.get("cpu_time_ms"),
                         measurements.get("execution_device"), measurements.get("preparation_ms"),
                     ))
-            finished = perf_counter()
-            storage_ms = (finished - storage_started) * 1000
-            with self._connection() as connection:
-                connection.execute(
-                    "UPDATE api_calls SET storage_ms=? WHERE request_id=?",
-                    (storage_ms, request_id),
-                )
         except (OSError, sqlite3.Error, TypeError, ValueError) as error:
             LOGGER.error("Stockage SQLite impossible pour %s (%s).",
                          request_id, type(error).__name__)

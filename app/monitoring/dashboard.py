@@ -205,7 +205,7 @@ def afficher_performances(database):
     for title, metrics in [
         ("Temps de réponse", [("Latence médiane (ms)", "latency_ms"), ("Latence P95 (ms)", "latency_ms")]),
         ("Calcul et ressources", [("Inférence médiane (ms)", "inference_ms"), ("Temps CPU médian (ms)", "cpu_time_ms")]),
-        ("Préparation et stockage", [("Préparation médiane (ms)", "preparation_ms"), ("Stockage médian (ms)", "storage_ms")]),
+        ("Préparation", [("Préparation médiane (ms)", "preparation_ms")]),
         ("Autres délais", [("Autres délais médians (ms)", "other_elapsed_ms")]),
         ("Fiabilité", [("Rejets (%)", None), ("Pannes (%)", None)]),
     ]:
@@ -231,10 +231,10 @@ def afficher_performances(database):
     st.dataframe(values.rename(columns={
         "timestamp_utc": "Date (Paris)", "status": "Statut", "cpu_time_ms": "CPU (ms)",
         "preparation_ms": "Préparation (ms)", "inference_ms": "Inférence (ms)",
-        "storage_ms": "Stockage (ms)", "other_elapsed_ms": "Autres délais (ms)",
+        "other_elapsed_ms": "Autres délais (ms)",
         "latency_ms": "Latence totale (ms)",
     }), hide_index=True, width="stretch", alt="Durées par étape des appels récents")
-    st.caption("Pour une même ligne complète : préparation + inférence + stockage + autres délais = latence totale. Le CPU est indépendant. Les médianes de colonnes ne s'additionnent pas.")
+    st.caption("Pour une même ligne complète : préparation + inférence + autres délais = latence totale. Les autres délais incluent le stockage. Le CPU est indépendant. Les médianes de colonnes ne s'additionnent pas.")
 
 
 if __name__ == "__main__":

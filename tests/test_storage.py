@@ -35,7 +35,6 @@ def test_T11_successful_prediction_is_complete(serve_api, scorer, client_data):
     assert str(UUID(row["request_id"])) == row["request_id"]
     assert datetime.fromisoformat(row["timestamp_utc"]).utcoffset() == timedelta(0)
     assert row["operation"] == "predict" and row["status"] == "success"
-    assert row["storage_ms"] >= 0
     assert json.loads(row["input_json"]) == client_data
     assert json.loads(row["input_json"])["OWN_CAR_AGE"] is None
     assert json.loads(row["input_json"])["CNT_CHILDREN"] == 0
@@ -50,7 +49,6 @@ def test_T11_schema_is_recorded(serve_api, scorer):
         row = read_last(server.db_path)
     assert row["operation"] == "schema" and row["status"] == "success"
     assert row["input_json"] is None and row["score"] is None
-    assert row["storage_ms"] >= 0
 
 
 def test_T12_rejected_input_has_no_payload_or_score(serve_api, scorer, client_data):
@@ -61,7 +59,6 @@ def test_T12_rejected_input_has_no_payload_or_score(serve_api, scorer, client_da
         row = read_last(server.db_path)
     assert row["status"] == "rejected" and row["operation"] == "predict"
     assert "OWN_CAR_AGE" in row["reason"]
-    assert row["storage_ms"] >= 0
     for field in ("input_json", "score", "prediction", "threshold", "model_version"):
         assert row[field] is None
     scorer.pipeline.predict_proba.assert_not_called()

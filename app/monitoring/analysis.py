@@ -128,7 +128,6 @@ def mesures_performances(calls: pd.DataFrame) -> dict:
         ("inference_ms", "Inférence médiane (ms)"),
         ("cpu_time_ms", "Temps CPU médian (ms)"),
         ("preparation_ms", "Préparation médiane (ms)"),
-        ("storage_ms", "Stockage médian (ms)"),
         ("other_elapsed_ms", "Autres délais médians (ms)"),
     ]:
         values = pd.to_numeric(success.get(column, pd.Series(index=success.index, dtype="float64")), errors="coerce")
@@ -164,7 +163,7 @@ def analyser_performances(database: Path, nombre: int = 100) -> dict:
         # Un historique antérieur à l'instrumentation reste lisible.
         metrics = ", ".join(
             name if name in columns else f"NULL AS {name}"
-            for name in ["cpu_time_ms", "preparation_ms", "inference_ms", "storage_ms", "other_elapsed_ms", "latency_ms"]
+            for name in ["cpu_time_ms", "preparation_ms", "inference_ms", "other_elapsed_ms", "latency_ms"]
         )
         calls = pd.read_sql_query(
             f"SELECT timestamp_utc,status,model_version,{metrics} FROM api_calls "
@@ -185,7 +184,7 @@ def analyser_performances(database: Path, nombre: int = 100) -> dict:
         "date": pd.Timestamp.now(tz="Europe/Paris").strftime("%d/%m/%Y à %H:%M:%S"),
         "mesures": calls.iloc[:nombre][[
             "timestamp_utc", "status", "cpu_time_ms", "preparation_ms", "inference_ms",
-            "storage_ms", "other_elapsed_ms", "latency_ms",
+            "other_elapsed_ms", "latency_ms",
         ]].copy(),
     }
 

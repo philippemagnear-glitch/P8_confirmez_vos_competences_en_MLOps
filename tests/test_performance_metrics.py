@@ -46,7 +46,6 @@ def test_api_measurements_are_correlated_and_validation_precedes_inference(
             assert row["request_id"] == result["request_id"]
             assert row["inference_ms"] >= 0
             assert row["preparation_ms"] >= 0
-            assert row["storage_ms"] >= 0
             assert row["score"] == result["score"] == 0.25
         else:
             assert row["status"] == "rejected"

@@ -161,10 +161,12 @@ et `execution_device`. Le temps CPU concerne le processus serveur pendant le tra
 pas l'utilisation CPU globale de la machine. Le backend CPU actuel n'utilise
 pas le GPU. Mesures et limites de comparaison : [baseline avant optimisation](docs/baseline_avant_optimisation.md).
 
-Les durées sont ordonnées après `reason` : CPU, préparation, inférence, stockage,
+Les durées sont ordonnées après `reason` : CPU, préparation, inférence,
 autres délais et latence totale. Pour une même ligne complète, la somme de la préparation,
-de l'inférence, du stockage et des autres délais donne la latence. Le CPU est indépendant. Les autres délais sont
-un reste calculé : attente, échanges et opérations non isolées, dont l'écriture des mesures.
+de l'inférence et des autres délais donne la latence. Le CPU est indépendant. Les autres délais sont
+un reste calculé : attente, échanges et opérations non isolées, dont le stockage.
+L'appel est enregistré en une transaction ; sa durée de stockage n'est plus mesurée séparément.
+Le temps du stockage reste observable avec cProfile.
 
 ## Historique SQLite et monitoring
 

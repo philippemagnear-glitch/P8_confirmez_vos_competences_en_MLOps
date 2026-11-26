@@ -72,14 +72,14 @@ def main():
             print("Mesures sous cProfile (ms), à ne pas comparer aux latences API :")
             for request_id in request_ids:
                 row = connection.execute(
-                    "SELECT cpu_time_ms, preparation_ms, inference_ms, storage_ms "
+                    "SELECT cpu_time_ms, preparation_ms, inference_ms "
                     "FROM api_calls WHERE request_id=?", (request_id,),
                 ).fetchone()
                 if row is None or any(value is None for value in row):
                     raise RuntimeError(f"Mesures SQLite absentes ou incomplètes : {request_id}")
                 print(
                     f"CPU {row[0]:.2f} | préparation {row[1]:.2f} | "
-                    f"inférence {row[2]:.2f} | stockage {row[3]:.2f}"
+                    f"inférence {row[2]:.2f}"
                 )
     finally:
         # Hors capture, même si le calcul ou l'export échoue.

@@ -201,7 +201,18 @@ class CreditScoringModel:
                 validate_value(column.name, value)
             values[column.name] = value
 
-        return pd.DataFrame([values], columns=self.feature_names).astype(dtypes)
+        # Construire chaque groupe directement au bon type évite une conversion
+        # pandas par variable après la création du DataFrame.
+        columns_by_dtype = {}
+        for name, dtype in dtypes.items():
+            columns_by_dtype.setdefault(dtype, []).append(name)
+        frames = [
+            pd.DataFrame(
+                [[values[name] for name in names]], columns=names, dtype=dtype,
+            )
+            for dtype, names in columns_by_dtype.items()
+        ]
+        return pd.concat(frames, axis=1).reindex(columns=self.feature_names)
 
     def predict(self, client: dict, *, measurements: dict | None = None) -> dict:
         """Enchaîne préparation, inférence et construction de la réponse."""
