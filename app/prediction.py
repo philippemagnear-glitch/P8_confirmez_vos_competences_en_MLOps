@@ -1,13 +1,15 @@
 """Chargement autonome du modèle et validation des données d'un client."""
 
 import json
+import logging
 import math
+import os
 from numbers import Integral, Real
 from pathlib import Path
 from time import perf_counter
 
 import mlflow.sklearn
-import pandas as pd
+import numpy as np
 from mlflow.models import Model
 
 
@@ -76,9 +78,11 @@ def validate_value(name: str, value: Real) -> None:
 
 
 class CreditScoringModel:
-    """Associe le pipeline entraîné à sa signature et à sa provenance."""
+    """Exécute avec ONNX Runtime le pipeline LightGBM exporté depuis MLflow."""
 
     def __init__(self, artifacts_path: Path = ARTIFACTS_PATH):
+        self.backend = "onnx"
+        self.execution_device = "cpu"
         artifacts_path = Path(artifacts_path)
         with (artifacts_path / "provenance.json").open(encoding="utf-8") as file:
             self.provenance = json.load(file)
@@ -96,6 +100,11 @@ class CreditScoringModel:
         self.feature_names = [column.name for column in self.columns]
         if len(set(self.feature_names)) != len(self.feature_names):
             raise ValueError("La signature contient des noms de colonnes dupliqués.")
+        self.expected_features = frozenset(self.feature_names)
+        self.input_fields = tuple(
+            (column.name, column.type.name)
+            for column in self.columns
+        )
         if (
             metadata.run_id != self.provenance["run_id"]
             or metadata.model_id != self.provenance["model_id"]
@@ -113,9 +122,53 @@ class CreditScoringModel:
         if len(classes) != 2 or 1 not in classes:
             raise ValueError("Le modèle doit prédire la classe de défaut 1.")
         self.default_class_index = classes.index(1)
-        estimator = self.pipeline.steps[-1][1] if hasattr(self.pipeline, "steps") else None
-        parameters = getattr(getattr(estimator, "booster_", None), "params", {})
-        self.execution_device = parameters.get("device_type", parameters.get("device", "cpu"))
+        try:
+            threads = int(os.environ.get("MODEL_NUM_THREADS", "1"))
+        except ValueError:
+            raise ValueError("MODEL_NUM_THREADS doit être un entier strictement positif.") from None
+        if threads < 1:
+            raise ValueError("MODEL_NUM_THREADS doit être un entier strictement positif.")
+        self.onnx_session = self.create_onnx_session(threads)
+        logging.getLogger(__name__).info("ONNX Runtime CPU : %s thread(s).", threads)
+
+    def create_onnx_session(self, threads):
+        """Convertit le pipeline une fois en mémoire et prépare son exécution CPU.
+
+        Le pipeline original reste disponible pour le monitoring.
+        L'artefact MLflow sauvegardé n'est jamais modifié.
+        """
+        import onnxruntime as ort
+        from lightgbm import LGBMClassifier
+        from onnxmltools.convert.lightgbm.operator_converters.LightGbm import (
+            convert_lightgbm,
+        )
+        from skl2onnx import convert_sklearn, update_registered_converter
+        from skl2onnx.common.data_types import FloatTensorType
+        from skl2onnx.common.shape_calculator import (
+            calculate_linear_classifier_output_shapes,
+        )
+
+        estimator = self.pipeline.steps[-1][1]
+        if not isinstance(estimator, LGBMClassifier):
+            raise ValueError("Le moteur ONNX attend un pipeline terminé par LGBMClassifier.")
+        update_registered_converter(
+            LGBMClassifier, "LightGbmLGBMClassifier",
+            calculate_linear_classifier_output_shapes, convert_lightgbm,
+            options={"nocl": [True, False], "zipmap": [True, False, "columns"]},
+        )
+        graph = convert_sklearn(
+            self.pipeline,
+            initial_types=[("input", FloatTensorType([None, len(self.feature_names)]))],
+            options={id(estimator): {"zipmap": False}},
+            target_opset={"": 15, "ai.onnx.ml": 2},
+        )
+        options = ort.SessionOptions()
+        options.intra_op_num_threads = threads
+        options.inter_op_num_threads = 1
+        options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+        return ort.InferenceSession(
+            graph.SerializeToString(), options, providers=["CPUExecutionProvider"],
+        )
 
     def schema(self) -> dict:
         """Expose les variables MLflow avec une présence obligatoire côté API."""
@@ -134,7 +187,7 @@ class CreditScoringModel:
             ],
         }
 
-    def prepare_input(self, client: dict) -> pd.DataFrame:
+    def prepare_input(self, client: dict) -> np.ndarray:
         """Valide un client et ordonne ses variables selon la signature MLflow.
 
         Les nombres manquants deviennent des NaN pour l'imputation sauvegardée.
@@ -142,6 +195,7 @@ class CreditScoringModel:
         déclare facultatives. Seul None indique une valeur manquante : 0 est
         conservé comme valeur numérique.
         Les chaînes numériques et les nombres non finis sont refusés.
+        Le tableau float32 est construit directement dans l'ordre du modèle.
         """
         if not isinstance(client, dict):
             raise InputValidationError(
@@ -149,9 +203,9 @@ class CreditScoringModel:
             )
         if any(not isinstance(name, str) for name in client):
             raise InputValidationError("Les noms des variables doivent être des chaînes.")
-        unknown = sorted(set(client).difference(self.feature_names))
-        missing = [name for name in self.feature_names if name not in client]
-        if missing or unknown:
+        if client.keys() != self.expected_features:
+            unknown = sorted(client.keys() - self.expected_features)
+            missing = [name for name in self.feature_names if name not in client]
             details = []
             if missing:
                 details.append(
@@ -161,58 +215,41 @@ class CreditScoringModel:
                 details.append("Variables inconnues : " + ", ".join(unknown))
             raise InputValidationError("\n".join(details))
 
-        values = {}
-        dtypes = {}
-        for column in self.columns:
-            value = client[column.name]
-            data_type = column.type.name
+        # Tableau propre à cet appel : aucune donnée mutable partagée entre clients.
+        values = np.empty((1, len(self.input_fields)), dtype=np.float32)
+        for index, (name, data_type) in enumerate(self.input_fields):
+            value = client[name]
             if value is None:
                 if data_type == "boolean":
-                    raise InputValidationError(f"{column.name} : un booléen est attendu.")
-                values[column.name] = float("nan")
-                dtypes[column.name] = "float64"
+                    raise InputValidationError(f"{name} : un booléen est attendu.")
+                values[0, index] = np.nan
                 continue
             if data_type == "boolean":
                 if not isinstance(value, bool):
-                    raise InputValidationError(f"{column.name} : un booléen est attendu.")
-                dtypes[column.name] = "bool"
+                    raise InputValidationError(f"{name} : un booléen est attendu.")
             elif data_type in {"integer", "long"}:
                 if isinstance(value, bool) or not isinstance(value, Integral):
-                    raise InputValidationError(f"{column.name} : un entier JSON est attendu.")
+                    raise InputValidationError(f"{name} : un entier JSON est attendu.")
                 bits = 32 if data_type == "integer" else 64
                 if not -(2 ** (bits - 1)) <= value < 2 ** (bits - 1):
                     raise InputValidationError(
-                        f"{column.name} : entier hors des limites du schéma."
+                        f"{name} : entier hors des limites du schéma."
                     )
-                dtypes[column.name] = f"int{bits}"
             else:
                 if isinstance(value, bool) or not isinstance(value, Real):
-                    raise InputValidationError(f"{column.name} : un nombre JSON est attendu.")
+                    raise InputValidationError(f"{name} : un nombre JSON est attendu.")
                 try:
                     finite = math.isfinite(value)
                 except OverflowError:
                     finite = False
                 if not finite:
                     raise InputValidationError(
-                        f"{column.name} : utiliser un nombre fini ou null."
+                        f"{name} : utiliser un nombre fini ou null."
                     )
-                dtypes[column.name] = "float64"
             if data_type != "boolean":
-                validate_value(column.name, value)
-            values[column.name] = value
-
-        # Construire chaque groupe directement au bon type évite une conversion
-        # pandas par variable après la création du DataFrame.
-        columns_by_dtype = {}
-        for name, dtype in dtypes.items():
-            columns_by_dtype.setdefault(dtype, []).append(name)
-        frames = [
-            pd.DataFrame(
-                [[values[name] for name in names]], columns=names, dtype=dtype,
-            )
-            for dtype, names in columns_by_dtype.items()
-        ]
-        return pd.concat(frames, axis=1).reindex(columns=self.feature_names)
+                validate_value(name, value)
+            values[0, index] = value
+        return values
 
     def predict(self, client: dict, *, measurements: dict | None = None) -> dict:
         """Enchaîne préparation, inférence et construction de la réponse."""
@@ -225,14 +262,19 @@ class CreditScoringModel:
         probabilities = self.run_inference(frame, measurements=measurements)
         return self.format_prediction(probabilities)
 
-    def run_inference(self, frame: pd.DataFrame, *, measurements: dict | None = None):
-        """Exécute le pipeline entraîné : imputation et probabilités LightGBM."""
+    def run_inference(
+        self, frame: np.ndarray, *, measurements: dict | None = None,
+    ):
+        """Exécute l'imputation et la classification dans la session ONNX partagée."""
         started = perf_counter()
         try:
-            return self.pipeline.predict_proba(frame)
+            probabilities = self.onnx_session.run(None, {"input": frame})[1]
+            if probabilities.shape != (len(frame), 2):
+                raise RuntimeError("Le moteur ONNX a retourné une sortie incompatible.")
+            return probabilities
         finally:
             if measurements is not None:
-                # Imputation et LightGBM ; validation et création du DataFrame exclues.
+                # Préparation du tableau exclue ; imputation et classification incluses.
                 measurements["inference_ms"] = (perf_counter() - started) * 1000
 
     def format_prediction(self, probabilities) -> dict:

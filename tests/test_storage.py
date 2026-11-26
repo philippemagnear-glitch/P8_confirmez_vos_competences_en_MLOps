@@ -61,12 +61,12 @@ def test_T12_rejected_input_has_no_payload_or_score(serve_api, scorer, client_da
     assert "OWN_CAR_AGE" in row["reason"]
     for field in ("input_json", "score", "prediction", "threshold", "model_version"):
         assert row[field] is None
-    scorer.pipeline.predict_proba.assert_not_called()
+    scorer.session.run.assert_not_called()
 
 
 def test_T12_server_failure_never_stores_exception_payload(serve_api, scorer, client_data):
     secret = "DONNEES_PRIVEES_DANS_EXCEPTION"
-    scorer.pipeline.failure = RuntimeError(secret + json.dumps(client_data))
+    scorer.session.failure = RuntimeError(secret + json.dumps(client_data))
     with serve_api(scorer.model) as server:
         with pytest.raises(AppError, match="La prédiction a échoué"):
             server.client.submit(client=client_data, api_name="/predict").result(timeout=20)

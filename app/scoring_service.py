@@ -50,6 +50,7 @@ def process_api_call(model, store, operation, client=None, *, request_id=None):
         measurements.update(
             cpu_time_ms=(process_time() - cpu_started) * 1000,
             execution_device=model.execution_device if operation == "predict" else None,
+            model_backend=getattr(model, "backend", None),
         )
         store.record_api_call(
             operation=operation, status=status, started_at=started_at,

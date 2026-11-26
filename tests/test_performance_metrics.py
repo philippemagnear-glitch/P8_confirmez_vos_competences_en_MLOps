@@ -42,6 +42,7 @@ def test_api_measurements_are_correlated_and_validation_precedes_inference(
         assert str(UUID(row["request_id"])) == row["request_id"]
         assert row["cpu_time_ms"] >= 0
         assert row["execution_device"] == "cpu"
+        assert row["model_backend"] == "onnx"
         if valid:
             assert row["request_id"] == result["request_id"]
             assert row["inference_ms"] >= 0
@@ -51,7 +52,7 @@ def test_api_measurements_are_correlated_and_validation_precedes_inference(
             assert row["status"] == "rejected"
             assert row["inference_ms"] is None
             assert row["score"] is None and row["input_json"] is None
-            scorer.pipeline.predict_proba.assert_not_called()
+            scorer.session.run.assert_not_called()
     finally:
         demo.close(verbose=False)
 

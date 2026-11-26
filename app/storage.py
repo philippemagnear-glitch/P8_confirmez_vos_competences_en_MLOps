@@ -34,7 +34,7 @@ CREATE_API_CALLS_TABLE = """
         request_id TEXT PRIMARY KEY, timestamp_utc TEXT NOT NULL,
         operation TEXT NOT NULL CHECK(operation IN ('predict', 'schema')),
         status TEXT NOT NULL CHECK(status IN ('success', 'rejected', 'error')),
-        model_version TEXT, execution_device TEXT,
+        model_version TEXT, execution_device TEXT, model_backend TEXT,
         input_json TEXT, score REAL, prediction INTEGER, threshold REAL, reason TEXT,
         cpu_time_ms REAL, preparation_ms REAL, inference_ms REAL,
         other_elapsed_ms REAL, latency_ms REAL
@@ -62,6 +62,7 @@ class ApiCallStore:
                 for name, data_type in (
                     ("inference_ms", "REAL"), ("cpu_time_ms", "REAL"),
                     ("execution_device", "TEXT"),
+                    ("model_backend", "TEXT"),
                     ("latency_ms", "REAL"),
                     ("preparation_ms", "REAL"),
                     ("other_elapsed_ms", "REAL"),
@@ -114,14 +115,16 @@ class ApiCallStore:
                         INSERT INTO api_calls (
                             request_id, timestamp_utc, operation, status,
                             input_json, score, prediction, threshold, model_version, reason,
-                            inference_ms, cpu_time_ms, execution_device, preparation_ms
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            inference_ms, cpu_time_ms, execution_device, preparation_ms,
+                            model_backend
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         request_id, started_at, operation, status, payload,
                         output.get("score"), output.get("prediction"),
                         output.get("threshold"), output.get("model_version"), reason,
                         measurements.get("inference_ms"), measurements.get("cpu_time_ms"),
                         measurements.get("execution_device"), measurements.get("preparation_ms"),
+                        measurements.get("model_backend"),
                     ))
         except (OSError, sqlite3.Error, TypeError, ValueError) as error:
             LOGGER.error("Stockage SQLite impossible pour %s (%s).",

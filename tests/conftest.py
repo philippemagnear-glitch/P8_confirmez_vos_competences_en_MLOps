@@ -1,4 +1,4 @@
-"""Données de référence, pipeline simulé et serveur Gradio temporaire."""
+"""Données de référence, session ONNX simulée et serveur Gradio temporaire."""
 
 import copy
 import json
@@ -12,7 +12,7 @@ from unittest.mock import Mock
 os.environ["GRADIO_ANALYTICS_ENABLED"] = "False"
 os.environ["HF_HUB_OFFLINE"] = "1"
 
-import pandas as pd
+import numpy as np
 import pytest
 from gradio_client import Client
 from mlflow.models import Model, ModelSignature
@@ -32,21 +32,20 @@ PROVENANCE = {
 }
 
 
-class FakePipeline:
-    """Simule uniquement le calcul ; la vraie validation reste utilisée."""
+class FakeSession:
+    """Simule uniquement ONNX Runtime ; la vraie validation reste utilisée."""
 
-    def __init__(self, names, score=0.25, classes=(0, 1)):
-        self.feature_names_in_ = names
+    def __init__(self, score=0.25, classes=(0, 1)):
         self.classes_ = list(classes)
         self.score = score
         self.failure = None
-        self.predict_proba = Mock(side_effect=self._predict_proba)
+        self.run = Mock(side_effect=self._run)
 
-    def _predict_proba(self, frame):
+    def _run(self, output_names, inputs):
         if self.failure is not None:
             raise self.failure
         row = [self.score if label == 1 else 1 - self.score for label in self.classes_]
-        return pd.DataFrame([row]).to_numpy()
+        return [None, np.asarray([row])]
 
 
 def build_scorer(path, specs, score=0.25, classes=(0, 1)):
@@ -57,14 +56,21 @@ def build_scorer(path, specs, score=0.25, classes=(0, 1)):
         run_id=PROVENANCE["run_id"],
         model_id=PROVENANCE["model_id"],
     )
-    pipeline = FakePipeline([spec["name"] for spec in specs], score, classes)
+    pipeline = SimpleNamespace(
+        feature_names_in_=[spec["name"] for spec in specs], classes_=list(classes),
+    )
+    session = FakeSession(score, classes)
     loader = Mock(return_value=pipeline)
-    # Les colonnes proviennent de MLmodel ; le pipeline de calcul est simulé.
+    session_loader = Mock(return_value=session)
+    # Signature réelle, métadonnées simulées et session ONNX remplacée pour les tests unitaires.
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr("app.prediction.Model.load", Mock(return_value=metadata))
         patch.setattr("app.prediction.mlflow.sklearn.load_model", loader)
+        patch.setattr(CreditScoringModel, "create_onnx_session", session_loader)
         model = CreditScoringModel(path)
-    return SimpleNamespace(model=model, pipeline=pipeline, loader=loader)
+    return SimpleNamespace(
+        model=model, session=session, loader=loader, session_loader=session_loader,
+    )
 
 
 @pytest.fixture(scope="session")
@@ -147,12 +153,12 @@ def api_server(serve_api, tmp_path_factory, schema_specs):
 
 @pytest.fixture
 def api(api_server):
-    pipeline = api_server.scorer.pipeline
-    pipeline.predict_proba.reset_mock()
-    pipeline.failure = None
-    pipeline.score = 0.25
+    session = api_server.scorer.session
+    session.run.reset_mock()
+    session.failure = None
+    session.score = 0.25
     yield api_server
-    pipeline.failure = None
+    session.failure = None
 
 
 def pytest_terminal_summary(terminalreporter):

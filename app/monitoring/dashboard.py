@@ -206,8 +206,6 @@ def afficher_performances(database):
         ("Temps de réponse", [("Latence médiane (ms)", "latency_ms"), ("Latence P95 (ms)", "latency_ms")]),
         ("Calcul et ressources", [("Inférence médiane (ms)", "inference_ms"), ("Temps CPU médian (ms)", "cpu_time_ms")]),
         ("Préparation", [("Préparation médiane (ms)", "preparation_ms")]),
-        ("Autres délais", [("Autres délais médians (ms)", "other_elapsed_ms")]),
-        ("Fiabilité", [("Rejets (%)", None), ("Pannes (%)", None)]),
     ]:
         st.subheader(title)
         for column, (label, measurement) in zip(st.columns(2), metrics):
@@ -215,26 +213,15 @@ def afficher_performances(database):
                 value, old = current[label], previous[label]
                 st.metric(label, "Données insuffisantes" if pd.isna(value) else f"{value:.2f}")
                 if report["comparaison"] and pd.notna(value) and pd.notna(old):
-                    unit = "points" if measurement is None else "ms"
                     difference = round(value - old, 2)
                     text = "0,00" if difference == 0 else f"{difference:+.2f}".replace(".", ",")
-                    st.caption(f"Différence avec les {previous['Appels']} appels précédents : {text} {unit}.")
-                count = current[f"Mesures {measurement}"] if measurement else current["Appels"]
-                st.caption(f"{count} mesure(s) utilisée(s)" if measurement else f"{count} appels analysés")
+                    st.caption(f"Différence avec les {previous['Appels']} appels précédents : {text} ms.")
+                count = current[f"Mesures {measurement}"]
+                st.caption(f"{count} mesure(s) utilisée(s)")
                 if label == "Latence P95 (ms)" and 50 <= count < 100:
                     st.caption("P95 provisoire : moins de 100 mesures.")
     if sum(current[f"Mesures {name}"] for name in ["latency_ms", "inference_ms", "cpu_time_ms"]) == 0:
         st.info("Aucune mesure de performance disponible sur les appels actuels.")
-    st.subheader("Mesures des appels récents")
-    values = report["mesures"].copy()
-    values["timestamp_utc"] = pd.to_datetime(values["timestamp_utc"], utc=True).dt.tz_convert("Europe/Paris").dt.strftime("%d/%m/%Y %H:%M:%S")
-    st.dataframe(values.rename(columns={
-        "timestamp_utc": "Date (Paris)", "status": "Statut", "cpu_time_ms": "CPU (ms)",
-        "preparation_ms": "Préparation (ms)", "inference_ms": "Inférence (ms)",
-        "other_elapsed_ms": "Autres délais (ms)",
-        "latency_ms": "Latence totale (ms)",
-    }), hide_index=True, width="stretch", alt="Durées par étape des appels récents")
-    st.caption("Pour une même ligne complète : préparation + inférence + autres délais = latence totale. Les autres délais incluent le stockage. Le CPU est indépendant. Les médianes de colonnes ne s'additionnent pas.")
 
 
 if __name__ == "__main__":
